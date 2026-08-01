@@ -22,10 +22,9 @@
   <a class="btn btn-sm" href="{{ today_url }}">今日</a>
 
   <span class="toggle-group">
-    <a class="btn btn-sm {{ 'active' if view =='week' else '' }}" href="{{ switch_week_url }}">週表示</a>
-    <a class="btn btn-sm {{ 'active' if view =='month' else '' }}" href="{{ switch_month_url }}">月表示</a>
+    <a class="btn btn-sm {{ 'active' if view == 'week' else '' }}" href="{{ switch_week_url }}">週表示</a>
+    <a class="btn btn-sm {{ 'active' if view == 'month' else '' }}" href="{{ switch_month_url }}">月表示</a>
   </span>
-
   <span class="total-label">{{ total_label }}</span>
 
   {% if not viewing_own %}
