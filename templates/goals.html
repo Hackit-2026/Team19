@@ -27,6 +27,7 @@
       {% endif %}
 
       <form method="post" action="{{ url_for('goals_view') }}" class="row" style="margin-top:6px;">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="period" value="{{ period }}">
         <div>
           <div class="field-label">目標時間(時間/{{ label }})</div>

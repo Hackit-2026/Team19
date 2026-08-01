@@ -11,8 +11,11 @@
   </div>
 
   <div class="form-actions">
+    {% if config.DEV_MAILBOX_ENABLED %}
     <a class="btn btn-primary" href="{{ url_for('dev_mailbox', email=g.user.email) }}" target="_blank" rel="noopener">開発用メールボックスを開く</a>
+    {% endif %}
     <form method="post" action="{{ url_for('verify_email_resend') }}" style="display:inline;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn">確認メールを再送信する</button>
     </form>
   </div>

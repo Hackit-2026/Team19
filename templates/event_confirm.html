@@ -17,6 +17,7 @@
 
   <div class="form-actions" style="margin-top:18px;">
     <form method="post" action="{{ url_for('edit_event', event_id=event_id) if mode == 'edit' else url_for('new_event') }}" style="display:inline;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="date" value="{{ date }}">
       <input type="hidden" name="title" value="{{ title }}">
       <input type="hidden" name="start_time" value="{{ start_time }}">

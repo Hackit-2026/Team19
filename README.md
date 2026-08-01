@@ -1,7 +1,7 @@
 # タイムラインカレンダー Web版(フル機能版・ローカルサーバー)
 
 要件定義書(01_要件定義書_詳細版.md)に記載した優先度1〜4の機能を、**ソーシャルログインを除いてすべて**実装したバージョンです。
-Flask + SQLiteで作られており、Pythonさえあれば手元のPCですぐ動かせます(ローカルサーバー用途、実運用へのそのままの公開は想定していません)。
+Flask + SQLiteで作られており、Docker ComposeまたはPythonで起動できます。
 
 ## 含まれる機能
 
@@ -35,31 +35,58 @@ Flask + SQLiteで作られており、Pythonさえあれば手元のPCですぐ�
 
 ## メール送信について(重要)
 
-ローカルサーバーのため、実際にはメールを送信していません。メール認証・パスワードリセット・フレンド申請通知のメールは、すべて**「開発用メールボックス」**(`/dev/mailbox`)に記録されます。ログイン画面や該当する案内画面から直接リンクできます。これはMailHog/Mailtrapなど、ローカル開発でよく使われるメール確認ツールと同じ考え方です。
+実際にはメールを送信せず、メール認証・パスワードリセット・フレンド申請通知をDB内の開発用メールボックスへ記録します。`DEV_MAILBOX_ENABLED=true`を明示したローカル環境だけで`/dev/mailbox`を公開し、デフォルトおよび公開環境では404を返します。
 
 本番運用する場合は、`db.send_mock_mail()` の呼び出し箇所を実際のSMTP送信(例: Flask-Mail、SendGrid等)に置き換えてください。
 
-## セキュリティ面の注意(本番運用時は要対応)
+## セキュリティ面の注意
 
-- `app.secret_key` はデモ用の固定値です。実運用では環境変数等で必ず変更してください
+- `SECRET_KEY`は必須です。`.env`はGitへコミットせず、環境ごとに十分長いランダム値を設定してください
+- POSTフォームはCSRFトークンで保護されています
+- 公開環境では`DEV_MAILBOX_ENABLED=false`、HTTPS利用時は`SESSION_COOKIE_SECURE=true`にしてください
 - ログイン試行回数の制限は未実装です
 - メール送信を実SMTPに置き換える際は、送信先アドレスの検証やレート制限も合わせて検討してください
 
 ## 必要なもの
 
-- Python 3.9以降
-- Flask(`pip install -r requirements.txt` で導入)
+- Docker Desktop + Docker Compose、またはPython 3.13
 
-## 起動方法
+## Dockerでの起動方法
+
+`.env.example`を`.env`へコピーし、`SECRET_KEY`をランダム値へ変更してから起動します。
 
 ```bash
-cd web_demo
-pip install -r requirements.txt --break-system-packages   # 環境によっては --break-system-packages は不要です
-python3 seed.py     # デモ用データを投入(初回、またはデータをリセットしたい時に実行)
-python3 app.py      # http://127.0.0.1:5000 で起動します
+cp .env.example .env
+python -c "import secrets; print(secrets.token_urlsafe(32))"
+# 表示された値を.envのSECRET_KEYへ設定
+docker compose up --build -d
+docker compose ps
 ```
 
-ブラウザで `http://127.0.0.1:5000` を開いてください。
+ブラウザで`http://127.0.0.1:5000`を開いてください。SQLiteはDocker Volumeの`/data/demo.db`へ保存されるため、コンテナを作り直しても保持されます。
+
+ログ確認と停止は以下です。
+
+```bash
+docker compose logs -f web
+docker compose down
+```
+
+Volumeを含めてデータを消す場合に限り、`docker compose down -v`を使用してください。
+
+## Pythonでの起動方法
+
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
+export DEV_MAILBOX_ENABLED=true
+python seed.py      # デモデータが必要な場合だけ実行。既存DBはリセットされます
+python app.py
+```
+
+Windows PowerShellでは仮想環境を`.venv\Scripts\Activate.ps1`で有効化し、環境変数を`$env:SECRET_KEY="..."`の形式で設定してください。
 
 ## デモアカウント
 
@@ -89,14 +116,17 @@ python3 app.py      # http://127.0.0.1:5000 で起動します
 ## ファイル構成
 
 ```
-web_demo/
+Team19/
+  Dockerfile         - アプリのコンテナイメージ
+  compose.yaml       - ポート・環境変数・SQLite Volume
+  docker-entrypoint.sh - DB初期化後にGunicornを起動
   app.py              - Flaskアプリ本体(ルーティング)
   db.py               - データ層(SQLite操作、疑似メール送信含む)
   calendar_utils.py   - 週表示/月表示グリッドの組み立てロジック
   seed.py             - デモ用データ投入スクリプト
   templates/          - 画面テンプレート(Jinja2)
   static/style.css    - スタイルシート(レスポンシブ対応含む)
-  demo.db             - SQLiteデータベース(初回起動時に自動生成)
+  tests/              - pytestによる自動テスト
 ```
 
 ## 動作確認について

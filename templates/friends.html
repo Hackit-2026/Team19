@@ -6,6 +6,7 @@
 
   <div class="section-title">フレンドを追加</div>
   <form method="post" action="{{ url_for('friends_request') }}" class="row">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input class="field small wide-field" type="email" name="email" placeholder="メールアドレスで検索" required>
     <button type="submit" class="btn btn-sm">申請を送る</button>
   </form>
@@ -17,9 +18,11 @@
         <span><span class="avatar">{{ r.display_name[0] }}</span>{{ r.display_name }} さんから申請が届いています</span>
         <span>
           <form method="post" action="{{ url_for('friends_accept', friendship_id=r.friendship_id) }}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-primary">承認</button>
           </form>
           <form method="post" action="{{ url_for('friends_decline', friendship_id=r.friendship_id) }}" style="display:inline;">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm">拒否</button>
           </form>
         </span>
@@ -35,6 +38,7 @@
       <div class="list-row">
         <span><span class="avatar">{{ r.display_name[0] }}</span>{{ r.display_name }}</span>
         <form method="post" action="{{ url_for('friends_remove', friendship_id=r.friendship_id) }}" style="display:inline;">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" class="btn btn-sm">取り消す</button>
         </form>
       </div>
@@ -61,6 +65,7 @@
           <a class="btn btn-sm btn-primary" href="{{ url_for('friend_calendar_view', user_id=f.user_id) }}">カレンダーを見る</a>
           <form method="post" action="{{ url_for('friends_remove', friendship_id=f.friendship_id) }}" style="display:inline;"
                 onsubmit="return confirm('フレンドを解除しますか？');">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button type="submit" class="btn btn-sm btn-warn">解除</button>
           </form>
         </span>

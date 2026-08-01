@@ -20,7 +20,8 @@ from datetime import datetime, timedelta
 
 from werkzeug.security import generate_password_hash, check_password_hash
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo.db")
+DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo.db")
+DB_PATH = os.path.abspath(os.environ.get("DATABASE_PATH", DEFAULT_DB_PATH))
 DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 TASK_PRESETS = ["勉強", "筋トレ", "作業", "読書"]
@@ -43,9 +44,11 @@ def parse_dt(s):
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 
@@ -60,6 +63,7 @@ def init_db(reset=False):
         os.remove(DB_PATH)
 
     conn = get_connection()
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS users (

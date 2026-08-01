@@ -12,6 +12,7 @@
 
   <div class="section-title">パスワード変更</div>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label class="field-label">現在のパスワード</label>
     <input class="field" type="password" name="current_password" required>
     <label class="field-label">新しいパスワード(6文字以上)</label>

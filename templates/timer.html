@@ -8,6 +8,7 @@
     <p class="timer-status">「{{ active.task }}」を計測中…</p>
     <div id="elapsed" class="elapsed-display">00:00:00</div>
     <form method="post" action="{{ url_for('timer_stop') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-primary btn-lg">■ 停止</button>
     </form>
     <div class="demo-note">
@@ -29,6 +30,7 @@
     </script>
   {% else %}
     <form method="post" action="{{ url_for('timer_start') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label class="field-label">内容(プリセットから選択、または自由入力)</label>
       <input class="field" type="text" name="task" list="task-presets" required autofocus>
       <datalist id="task-presets">

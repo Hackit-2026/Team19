@@ -12,14 +12,34 @@ app.py
 import os
 from datetime import datetime, date, time, timedelta
 from functools import wraps
+from urllib.parse import urlsplit
 
-from flask import Flask, render_template, request, redirect, url_for, session, flash, g
+from flask import Flask, abort, render_template, request, redirect, url_for, session, flash, g
+from flask_wtf.csrf import CSRFProtect
 
 import db
 import calendar_utils as cu
 
+def env_flag(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+secret_key = os.environ.get("SECRET_KEY")
+if not secret_key or secret_key == "replace-with-a-random-secret" or len(secret_key) < 32:
+    raise RuntimeError("SECRET_KEY environment variable must contain at least 32 characters")
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("DEMO_SECRET_KEY", "demo-secret-key-not-for-production")
+app.config.update(
+    SECRET_KEY=secret_key,
+    DEV_MAILBOX_ENABLED=env_flag("DEV_MAILBOX_ENABLED"),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=env_flag("SESSION_COOKIE_SECURE"),
+)
+csrf = CSRFProtect(app)
 
 # email_verified チェックを免除するエンドポイント(未認証ユーザーでもアクセスできる)
 VERIFY_EXEMPT_ENDPOINTS = {
@@ -67,6 +87,21 @@ def parse_date_param(value, fallback=None):
         return fallback or date.today()
 
 
+def safe_next_url(target):
+    """Return an internal redirect target, or the calendar URL if it is unsafe."""
+    if target:
+        parsed = urlsplit(target)
+        if (
+            not parsed.scheme
+            and not parsed.netloc
+            and target.startswith("/")
+            and not target.startswith("//")
+            and "\\" not in target
+        ):
+            return target
+    return url_for("calendar_view")
+
+
 @app.context_processor
 def inject_badges():
     if g.user:
@@ -84,6 +119,16 @@ def inject_badges():
 @app.route("/")
 def index():
     return redirect(url_for("calendar_view") if g.user else url_for("login"))
+
+
+@app.route("/healthz")
+def healthz():
+    conn = db.get_connection()
+    try:
+        conn.execute("SELECT 1").fetchone()
+    finally:
+        conn.close()
+    return {"status": "ok"}
 
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -140,8 +185,7 @@ def login():
 
         session.clear()
         session["user_id"] = user["id"]
-        next_url = request.args.get("next") or url_for("calendar_view")
-        return redirect(next_url)
+        return redirect(safe_next_url(request.args.get("next")))
 
     return render_template("login.html", email="")
 
@@ -257,12 +301,16 @@ def account_settings():
 
 @app.route("/dev/mailbox")
 def dev_mailbox():
+    if not app.config["DEV_MAILBOX_ENABLED"]:
+        abort(404)
     email = request.args.get("email", "").strip() or None
     return render_template("dev_mailbox.html", mails=db.get_outbox(email=email), filter_email=email)
 
 
 @app.route("/dev/mailbox/<int:mail_id>")
 def dev_mailbox_item(mail_id):
+    if not app.config["DEV_MAILBOX_ENABLED"]:
+        abort(404)
     mail = db.get_outbox_item(mail_id)
     if mail is None:
         flash("メールが見つかりません", "error")
@@ -742,4 +790,8 @@ def select_friend_calendar():
 
 if __name__ == "__main__":
     db.init_db()
-    app.run(debug=True, port=5000)
+    app.run(
+        host=os.environ.get("HOST", "0.0.0.0"),
+        port=int(os.environ.get("PORT", "5000")),
+        debug=env_flag("FLASK_DEBUG"),
+    )

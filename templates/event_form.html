@@ -4,6 +4,7 @@
 <div class="form-window">
   <h1>{{ '予定を編集' if mode == 'edit' else '予定を追加' }}</h1>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label class="field-label">日付</label>
     <input class="field" type="date" name="date" value="{{ form.date }}" required>
 
@@ -52,6 +53,7 @@
   {% if mode == 'edit' %}
   <form method="post" action="{{ url_for('delete_event', event_id=event_id) }}" class="delete-form"
         onsubmit="return confirm('この予定を削除しますか？');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-warn">この予定を削除する</button>
   </form>
   {% endif %}

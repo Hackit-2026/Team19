@@ -4,6 +4,7 @@
 <div class="auth-window">
   <h1>ログイン</h1>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label class="field-label">メールアドレス</label>
     <input class="field" type="email" name="email" value="{{ email }}" required autofocus>
 
@@ -18,8 +19,10 @@
     <a href="{{ url_for('password_reset_request') }}">パスワードをお忘れの方はこちら</a>
   </div>
   <div class="demo-note">
-    デモアカウント: <code>demo1@example.com</code> / <code>demo1234</code>(パートナー用: <code>demo2@example.com</code> / <code>demo1234</code>)<br>
+    デモアカウント: <code>demo1@example.com</code> / <code>demo1234</code>(パートナー用: <code>demo2@example.com</code> / <code>demo1234</code>)
+    {% if config.DEV_MAILBOX_ENABLED %}<br>
     ※ メール認証・パスワードリセットのメールは <a href="{{ url_for('dev_mailbox') }}" target="_blank" rel="noopener">開発用メールボックス</a> で確認できます(ローカルのため実送信はしません)。
+    {% endif %}
   </div>
 </div>
 {% endblock %}

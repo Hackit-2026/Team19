@@ -4,6 +4,7 @@
 <div class="auth-window">
   <h1>新規登録</h1>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label class="field-label">表示名(フレンドに表示される名前)</label>
     <input class="field" type="text" name="display_name" value="{{ display_name }}" required autofocus>
 
@@ -21,8 +22,8 @@
   <div class="auth-links">
     <a href="{{ url_for('login') }}">ログイン画面へ戻る</a>
   </div>
-  <div class="demo-note">
+  {% if config.DEV_MAILBOX_ENABLED %}<div class="demo-note">
     ※ 登録後にメールアドレスの確認が必要です。ローカルサーバーのため、確認メールは <a href="{{ url_for('dev_mailbox') }}" target="_blank" rel="noopener">開発用メールボックス</a> に届きます。
-  </div>
+  </div>{% endif %}
 </div>
 {% endblock %}
