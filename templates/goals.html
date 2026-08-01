@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block title %}目標・進捗 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="form-window wide">
+  <h1>目標・進捗</h1>
+  <p class="empty-note">今日の合計記録時間: <strong>{{ (progress.today_minutes // 60) }}時間{{ (progress.today_minutes % 60) }}分</strong></p>
+
+  {% for period, label in [('week', '週'), ('month', '月')] %}
+    {% set info = progress[period] %}
+    <div class="section-title">{{ label }}の目標</div>
+    <div class="list-row" style="flex-direction:column; align-items:stretch; gap:8px;">
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <span>
+          今{{ label }}の合計: <strong>{{ (info.total_minutes // 60) }}時間{{ (info.total_minutes % 60) }}分</strong>
+          {% if info.target_minutes %}
+            / 目標 {{ (info.target_minutes // 60) }}時間{{ (info.target_minutes % 60) }}分
+            (達成率 {{ info.achievement_rate }}%)
+          {% else %}
+            (目標未設定)
+          {% endif %}
+        </span>
+      </div>
+      {% if info.target_minutes %}
+      <div style="background:#eee; border-radius:4px; height:10px; overflow:hidden;">
+        <div style="background: {{ '#2E7D46' if info.achievement_rate >= 100 else 'var(--accent)' }}; height:100%; width:{{ [info.achievement_rate, 100]|min }}%;"></div>
+      </div>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('goals_view') }}" class="row" style="margin-top:6px;">
+        <input type="hidden" name="period" value="{{ period }}">
+        <div>
+          <div class="field-label">目標時間(時間/{{ label }})</div>
+          <input class="field small" type="number" name="target_hours" min="0.5" step="0.5"
+                 value="{{ (info.target_minutes / 60) if info.target_minutes else '' }}" style="width:100px;" required>
+        </div>
+        <label style="font-size:12.5px; display:flex; align-items:center; gap:4px; margin-bottom:9px;">
+          <input type="checkbox" name="is_public" value="1" {{ 'checked' if info.is_public else '' }}>
+          フレンドに達成率を公開する
+        </label>
+        <button type="submit" class="btn btn-primary btn-sm">保存</button>
+        {% if info.target_minutes %}
+        <button type="submit" formaction="{{ url_for('goals_delete', period=period) }}" class="btn btn-sm btn-warn">目標を削除</button>
+        {% endif %}
+      </form>
+    </div>
+  {% endfor %}
+
+  <div class="demo-note">
+    公開に設定した期間の達成率は、フレンド一覧画面やフレンドのカレンダー画面から確認できるようになります。
+  </div>
+</div>
+{% endblock %}

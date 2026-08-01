@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}タイマー - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="form-window timer-window">
+  <h1>タイマー</h1>
+
+  {% if active %}
+    <p class="timer-status">「{{ active.task }}」を計測中…</p>
+    <div id="elapsed" class="elapsed-display">00:00:00</div>
+    <form method="post" action="{{ url_for('timer_stop') }}">
+      <button type="submit" class="btn btn-primary btn-lg">■ 停止</button>
+    </form>
+    <div class="demo-note">
+      このページを閉じたり再読み込みしても、計測開始時刻はサーバー側(active_timersテーブル)に保存されているので、
+      再度開けば経過時間が正しく復元されます。
+    </div>
+    <script>
+      var startedAt = new Date("{{ active.started_at.replace(' ', 'T') }}");
+      var el = document.getElementById('elapsed');
+      function tick() {
+        var diff = Math.max(0, Math.floor((new Date() - startedAt) / 1000));
+        var h = String(Math.floor(diff / 3600)).padStart(2, '0');
+        var m = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
+        var s = String(diff % 60).padStart(2, '0');
+        el.textContent = h + ':' + m + ':' + s;
+      }
+      tick();
+      setInterval(tick, 1000);
+    </script>
+  {% else %}
+    <form method="post" action="{{ url_for('timer_start') }}">
+      <label class="field-label">内容(プリセットから選択、または自由入力)</label>
+      <input class="field" type="text" name="task" list="task-presets" required autofocus>
+      <datalist id="task-presets">
+        {% for p in presets %}<option value="{{ p }}">{% endfor %}
+      </datalist>
+      <button type="submit" class="btn btn-primary btn-lg">▶ 開始</button>
+    </form>
+  {% endif %}
+</div>
+{% endblock %}

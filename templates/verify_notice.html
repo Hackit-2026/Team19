@@ -1,0 +1,20 @@
+{% extends "base.html" %}
+{% block title %}メールアドレスの確認 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="form-window">
+  <h1>メールアドレスの確認をお願いします</h1>
+  <p>「{{ g.user.email }}」宛に確認メールを送信しました。メール内のリンクを開いて、メールアドレスの確認を完了してください。</p>
+
+  <div class="demo-note">
+    このデモはローカルサーバーのため、実際にはメールを送信していません。
+    下のボタンから「開発用メールボックス」を開き、届いたメールのリンクをクリックしてください。
+  </div>
+
+  <div class="form-actions">
+    <a class="btn btn-primary" href="{{ url_for('dev_mailbox', email=g.user.email) }}" target="_blank" rel="noopener">開発用メールボックスを開く</a>
+    <form method="post" action="{{ url_for('verify_email_resend') }}" style="display:inline;">
+      <button type="submit" class="btn">確認メールを再送信する</button>
+    </form>
+  </div>
+</div>
+{% endblock %}

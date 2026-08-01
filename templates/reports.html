@@ -1,0 +1,35 @@
+{% extends "base.html" %}
+{% block title %}集計 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="form-window wide">
+  <h1>カテゴリ別集計</h1>
+
+  <div class="cal-toolbar" style="margin-bottom:10px;">
+    <span class="toggle-group">
+      <a class="btn btn-sm {{ 'active' if period == 'week' else '' }}" href="{{ url_for('reports_view', period='week') }}">週</a>
+      <a class="btn btn-sm {{ 'active' if period == 'month' else '' }}" href="{{ url_for('reports_view', period='month') }}">月</a>
+    </span>
+    <span class="total-label">{{ label }} ・ 合計 {{ total_label }}</span>
+  </div>
+
+  {% if items %}
+    {% for i in items %}
+      <div class="list-row" style="flex-direction:column; align-items:stretch; gap:6px;">
+        <div style="display:flex; justify-content:space-between;">
+          <span>{{ i.category }}</span>
+          <span>{{ i.duration_label }}({{ i.pct }}%)</span>
+        </div>
+        <div style="background:#eee; border-radius:4px; height:8px; overflow:hidden;">
+          <div style="background:var(--accent); height:100%; width:{{ i.pct }}%;"></div>
+        </div>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p class="empty-note">この期間の記録はありません</p>
+  {% endif %}
+
+  <div class="demo-note">
+    予定・タイマー記録の「カテゴリ」ごとに合計時間を集計しています。カテゴリを設定していない記録は「未分類」として扱われます。
+  </div>
+</div>
+{% endblock %}

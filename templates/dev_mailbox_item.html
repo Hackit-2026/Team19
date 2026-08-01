@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}{{ mail.subject }} - 開発用メールボックス{% endblock %}
+{% block content %}
+<div class="form-window wide">
+  <a class="back-link" href="{{ url_for('dev_mailbox') }}">← メールボックスに戻る</a>
+  <h1>{{ mail.subject }}</h1>
+  <p style="font-size:12.5px;color:#888;">To: {{ mail.to_email }} ・ {{ mail.created_at }}</p>
+  <div class="field" style="white-space:pre-wrap; height:auto; min-height:120px; line-height:1.6;">{% for line in mail.body.split('\n') %}{% if line.startswith('/') %}<a href="{{ line }}">{{ line }}</a>
+{% else %}{{ line }}
+{% endif %}{% endfor %}</div>
+</div>
+{% endblock %}
