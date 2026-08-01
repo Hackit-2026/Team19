@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}開発用メールボックス - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="form-window wide">
+  <h1>開発用メールボックス</h1>
+  <div class="demo-note">
+    ローカルサーバーのため実際のメール送信は行わず、送信内容をここに記録しています(MailHog等のローカル開発ツールと同じ考え方です)。
+  </div>
+
+  {% if filter_email %}
+    <p class="empty-note">「{{ filter_email }}」宛のメールを表示しています。<a href="{{ url_for('dev_mailbox') }}">すべて表示</a></p>
+  {% endif %}
+
+  {% if mails %}
+    {% for m in mails %}
+      <div class="list-row">
+        <span>
+          <strong>{{ m.subject }}</strong><br>
+          <span style="font-size:11.5px;color:#888;">To: {{ m.to_email }} ・ {{ m.created_at }}</span>
+        </span>
+        <a class="btn btn-sm" href="{{ url_for('dev_mailbox_item', mail_id=m.id) }}">開く</a>
+      </div>
+    {% endfor %}
+  {% else %}
+    <p class="empty-note">メールはまだありません</p>
+  {% endif %}
+</div>
+{% endblock %}

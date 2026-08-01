@@ -1,0 +1,59 @@
+{% extends "base.html" %}
+{% block title %}{{ '予定を編集' if mode == 'edit' else '予定を追加' }} - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="form-window">
+  <h1>{{ '予定を編集' if mode == 'edit' else '予定を追加' }}</h1>
+  <form method="post">
+    <label class="field-label">日付</label>
+    <input class="field" type="date" name="date" value="{{ form.date }}" required>
+
+    <label class="field-label">内容(プリセットから選択、または自由入力)</label>
+    <input class="field" type="text" name="title" list="task-presets" value="{{ form.title }}" required>
+    <datalist id="task-presets">
+      {% for p in presets %}<option value="{{ p }}">{% endfor %}
+    </datalist>
+
+    <div class="row">
+      <div>
+        <label class="field-label">開始時刻</label>
+        <input class="field small" type="time" name="start_time" value="{{ form.start_time }}" required>
+      </div>
+      <div>
+        <label class="field-label">終了時刻</label>
+        <input class="field small" type="time" name="end_time" value="{{ form.end_time }}" required>
+      </div>
+    </div>
+
+    <label class="field-label">カテゴリ(任意、集計に使用)</label>
+    <input class="field" type="text" name="category" list="category-presets" value="{{ form.category }}">
+    <datalist id="category-presets">
+      {% for c in category_presets %}<option value="{{ c }}">{% endfor %}
+    </datalist>
+
+    <label class="field-label">メモ(任意)</label>
+    <textarea class="field" name="memo" rows="3">{{ form.memo }}</textarea>
+
+    <label class="field-label">公開範囲</label>
+    <div class="row" style="gap:16px;">
+      <label style="font-size:13px; display:flex; align-items:center; gap:4px;">
+        <input type="radio" name="visibility" value="public" {{ 'checked' if form.visibility != 'private' else '' }}> フレンドに公開
+      </label>
+      <label style="font-size:13px; display:flex; align-items:center; gap:4px;">
+        <input type="radio" name="visibility" value="private" {{ 'checked' if form.visibility == 'private' else '' }}> 非公開(自分のみ)
+      </label>
+    </div>
+
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">{{ '更新する' if mode == 'edit' else '追加する' }}</button>
+      <a class="btn" href="{{ url_for('calendar_view', date=form.date) }}">キャンセル</a>
+    </div>
+  </form>
+
+  {% if mode == 'edit' %}
+  <form method="post" action="{{ url_for('delete_event', event_id=event_id) }}" class="delete-form"
+        onsubmit="return confirm('この予定を削除しますか？');">
+    <button type="submit" class="btn btn-warn">この予定を削除する</button>
+  </form>
+  {% endif %}
+</div>
+{% endblock %}

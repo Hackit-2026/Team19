@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block title %}ログイン - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="auth-window">
+  <h1>ログイン</h1>
+  <form method="post">
+    <label class="field-label">メールアドレス</label>
+    <input class="field" type="email" name="email" value="{{ email }}" required autofocus>
+
+    <label class="field-label">パスワード</label>
+    <input class="field" type="password" name="password" required>
+
+    <button type="submit" class="btn btn-primary">ログイン</button>
+  </form>
+  <div class="auth-links">
+    <a href="{{ url_for('signup') }}">新規登録はこちら</a>
+    &nbsp;|&nbsp;
+    <a href="{{ url_for('password_reset_request') }}">パスワードをお忘れの方はこちら</a>
+  </div>
+  <div class="demo-note">
+    デモアカウント: <code>demo1@example.com</code> / <code>demo1234</code>(パートナー用: <code>demo2@example.com</code> / <code>demo1234</code>)<br>
+    ※ メール認証・パスワードリセットのメールは <a href="{{ url_for('dev_mailbox') }}" target="_blank" rel="noopener">開発用メールボックス</a> で確認できます(ローカルのため実送信はしません)。
+  </div>
+</div>
+{% endblock %}

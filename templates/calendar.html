@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+{% block title %}カレンダー - タイムラインカレンダー{% endblock %}
+{% block content %}
+
+{% if not viewing_own %}
+  <div class="badge">👤 {{ target_user.display_name }} さんのカレンダー(閲覧のみ)</div>
+  {% if friend_progress %}
+    <div class="empty-note" style="margin-bottom:10px;">
+      {% if friend_progress.week %}週の達成率 <strong>{{ friend_progress.week.achievement_rate }}%</strong>(目標 {{ (friend_progress.week.target_minutes // 60) }}時間{{ friend_progress.week.target_minutes % 60 }}分){% endif %}
+      {% if friend_progress.week and friend_progress.month %} ・ {% endif %}
+      {% if friend_progress.month %}月の達成率 <strong>{{ friend_progress.month.achievement_rate }}%</strong>(目標 {{ (friend_progress.month.target_minutes // 60) }}時間{{ friend_progress.month.target_minutes % 60 }}分){% endif %}
+    </div>
+  {% endif %}
+{% endif %}
+
+<div class="cal-toolbar">
+  <a class="btn btn-sm" href="{{ prev_url }}">◀ {{ '前週' if view == 'week' else '前月' }}</a>
+  <span class="field small range-label">
+    {% if view == 'week' %}{{ week_days[0].isoformat() }} 〜 {{ week_days[6].isoformat() }}{% else %}{{ month_label }}{% endif %}
+  </span>
+  <a class="btn btn-sm" href="{{ next_url }}">{{ '翌週' if view == 'week' else '翌月' }} ▶</a>
+  <a class="btn btn-sm" href="{{ today_url }}">今日</a>
+
+  <span class="toggle-group">
+    <a class="btn btn-sm {{ 'active' if view == 'week' else '' }}" href="{{ switch_week_url }}">週表示</a>
+    <a class="btn btn-sm {{ 'active' if view == 'month' else '' }}" href="{{ switch_month_url }}">月表示</a>
+  </span>
+
+  <span class="total-label">{{ total_label }}</span>
+
+  {% if not viewing_own %}
+    <a class="link back-link" href="{{ back_url }}">← 自分のカレンダーに戻る</a>
+  {% endif %}
+</div>
+
+{% if view == 'week' %}
+<div class="cal-wrap">
+<table class="cal">
+  <tr>
+    <th class="time-col"></th>
+    {% for d in week_days %}
+      <th class="{{ 'today' if d == today else '' }}">{{ d.month }}/{{ d.day }}({{ weekday_names[d.weekday()] }}{{ '・今日' if d == today else '' }})</th>
+    {% endfor %}
+  </tr>
+  {% for slot_idx in range(slots_per_day) %}
+  <tr>
+    <td class="time">{{ slot_label(slot_idx) }}</td>
+    {% for d in week_days %}
+      {% set acts = grid[loop.index0][slot_idx] %}
+      {% set is_current = (viewing_own and d == today and slot_idx == current_slot) or (not viewing_own and d == today and slot_idx == current_slot) %}
+      <td class="{{ 'today' if is_current else '' }} {{ 'busy' if acts else '' }}">
+        {% if acts %}
+          {% for ev in acts %}
+            {% if viewing_own %}
+              <a class="ev-tag" href="{{ url_for('edit_event', event_id=ev.id) }}">{{ '🔒 ' if ev.visibility == 'private' else '' }}{{ ev.title }}</a>
+            {% else %}
+              <span class="ev-tag ev-tag-readonly">{{ ev.title }}</span>
+            {% endif %}
+          {% endfor %}
+        {% elif viewing_own %}
+          {% set end_label = slot_label(slot_idx + 1) if slot_idx + 1 < slots_per_day else "23:59" %}
+          <a class="cell-add-link" href="{{ url_for('new_event', date=d.isoformat(), start=slot_label(slot_idx), end=end_label) }}">＋</a>
+        {% endif %}
+      </td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% else %}
+<div class="cal-wrap">
+<table class="cal month-grid">
+  <tr>
+    {% for wd in weekday_names %}<th>{{ wd }}</th>{% endfor %}
+  </tr>
+  {% for week in weeks %}
+  <tr>
+    {% for cell in week %}
+      <td class="{{ '' if cell.in_month else 'outside' }} {{ 'today' if cell.date == today else '' }}">
+        <a class="date-num" href="{{ week_url(cell.date) }}">{{ cell.date.month }}/{{ cell.date.day }}{{ '・今日' if cell.date == today else '' }}</a>
+        {% for ev in cell.events[:3] %}
+          <span class="ev">{{ '🔒 ' if (viewing_own and ev.visibility == 'private') else '' }}{{ ev.title }}</span>
+        {% endfor %}
+        {% if cell.events|length > 3 %}
+          <span class="ev-more">他{{ cell.events|length - 3 }}件</span>
+        {% endif %}
+      </td>
+    {% endfor %}
+  </tr>
+  {% endfor %}
+</table>
+</div>
+{% endif %}
+
+{% if viewing_own %}
+<div class="cal-actions">
+  <a class="btn btn-primary" href="{{ url_for('new_event', date=ref_date.isoformat()) }}">＋ 予定を追加</a>
+  <a class="btn btn-primary" href="{{ url_for('timer_view') }}">▶ タイマー開始</a>
+</div>
+{% endif %}
+
+{% endblock %}

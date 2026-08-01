@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}アカウント設定 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="form-window">
+  <h1>アカウント設定</h1>
+
+  <div class="section-title">プロフィール</div>
+  <div class="list-row">
+    <span>{{ g.user.display_name }} ({{ g.user.email }})</span>
+    <span class="badge" style="margin:0;">{{ 'メール確認済み' if g.user.email_verified else '未確認' }}</span>
+  </div>
+
+  <div class="section-title">パスワード変更</div>
+  <form method="post">
+    <label class="field-label">現在のパスワード</label>
+    <input class="field" type="password" name="current_password" required>
+    <label class="field-label">新しいパスワード(6文字以上)</label>
+    <input class="field" type="password" name="new_password" required minlength="6">
+    <label class="field-label">新しいパスワード(確認用)</label>
+    <input class="field" type="password" name="new_password2" required minlength="6">
+    <div class="form-actions">
+      <button type="submit" class="btn btn-primary">パスワードを変更する</button>
+    </div>
+  </form>
+</div>
+{% endblock %}

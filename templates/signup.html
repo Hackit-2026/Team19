@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}新規登録 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="auth-window">
+  <h1>新規登録</h1>
+  <form method="post">
+    <label class="field-label">表示名(フレンドに表示される名前)</label>
+    <input class="field" type="text" name="display_name" value="{{ display_name }}" required autofocus>
+
+    <label class="field-label">メールアドレス</label>
+    <input class="field" type="email" name="email" value="{{ email }}" required>
+
+    <label class="field-label">パスワード(6文字以上)</label>
+    <input class="field" type="password" name="password" required minlength="6">
+
+    <label class="field-label">パスワード(確認用)</label>
+    <input class="field" type="password" name="password2" required minlength="6">
+
+    <button type="submit" class="btn btn-primary">登録する</button>
+  </form>
+  <div class="auth-links">
+    <a href="{{ url_for('login') }}">ログイン画面へ戻る</a>
+  </div>
+  <div class="demo-note">
+    ※ 登録後にメールアドレスの確認が必要です。ローカルサーバーのため、確認メールは <a href="{{ url_for('dev_mailbox') }}" target="_blank" rel="noopener">開発用メールボックス</a> に届きます。
+  </div>
+</div>
+{% endblock %}

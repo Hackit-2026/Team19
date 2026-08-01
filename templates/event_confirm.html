@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}予定の重複警告 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="form-window">
+  <h1>予定の重複警告</h1>
+  <div class="banner-warn">⚠ この時間帯には、既に登録済みの予定があります</div>
+
+  <div class="section-title">追加しようとしている予定</div>
+  <div class="list-row"><span>{{ title }} &nbsp; {{ date }} {{ start_time }}〜{{ end_time }}</span></div>
+
+  <div class="section-title">重複している既存の予定</div>
+  {% for c in conflicts %}
+    <div class="list-row">
+      <span>{{ c.title }} &nbsp; {{ c.start_at }} 〜 {{ c.end_at }}</span>
+    </div>
+  {% endfor %}
+
+  <div class="form-actions" style="margin-top:18px;">
+    <form method="post" action="{{ url_for('edit_event', event_id=event_id) if mode == 'edit' else url_for('new_event') }}" style="display:inline;">
+      <input type="hidden" name="date" value="{{ date }}">
+      <input type="hidden" name="title" value="{{ title }}">
+      <input type="hidden" name="start_time" value="{{ start_time }}">
+      <input type="hidden" name="end_time" value="{{ end_time }}">
+      <input type="hidden" name="memo" value="{{ memo }}">
+      <input type="hidden" name="category" value="{{ category }}">
+      <input type="hidden" name="visibility" value="{{ visibility }}">
+      <input type="hidden" name="confirm" value="1">
+      <button type="submit" class="btn btn-primary">このまま追加する</button>
+    </form>
+
+    {% if conflicts %}
+    <a class="btn" href="{{ url_for('edit_event', event_id=conflicts[0].id) }}">既存の予定を編集する</a>
+    {% endif %}
+
+    <a class="btn btn-warn" href="{{ url_for('calendar_view', date=date) }}">追加をやめる</a>
+  </div>
+</div>
+{% endblock %}

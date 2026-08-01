@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}通知 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="form-window wide">
+  <h1>通知</h1>
+
+  {% if items %}
+    {% for n in items %}
+      <div class="list-row">
+        <span>
+          {{ n.message }}
+          <br><span style="font-size:11px;color:#888;">{{ n.created_at }}</span>
+        </span>
+        {% if n.link %}<a class="btn btn-sm" href="{{ n.link }}">見る</a>{% endif %}
+      </div>
+    {% endfor %}
+  {% else %}
+    <p class="empty-note">通知はまだありません</p>
+  {% endif %}
+</div>
+{% endblock %}
