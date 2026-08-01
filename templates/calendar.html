@@ -41,14 +41,22 @@
     {% for d in week_days %}
       <th class="{{ 'today' if d == today else '' }}">{{ d.month }}/{{ d.day }}({{ weekday_names[d.weekday()] }}{{ '・今日' if d == today else '' }})</th>
     {% endfor %}
+    {% if viewing_own %}
+          <div class="cal-actions">
+            <a class="btn btn-primary" href="{{ url_for('new_event', date=ref_date.isoformat()) }}">＋ 予定を追加</a>
+            <a class="btn btn-primary" href="{{ url_for('timer_view') }}">▶ タイマー開始</a>
+          </div>
+    {% endif %}
   </tr>
   {% for slot_idx in range(slots_per_day) %}
   <tr>
+    
     <td class="time">{{ slot_label(slot_idx) }}</td>
     {% for d in week_days %}
       {% set acts = grid[loop.index0][slot_idx] %}
       {% set is_current = (viewing_own and d == today and slot_idx == current_slot) or (not viewing_own and d == today and slot_idx == current_slot) %}
       <td class="{{ 'today' if is_current else '' }} {{ 'busy' if acts else '' }}">
+        
         {% if acts %}
           {% for ev in acts %}
             {% if viewing_own %}
@@ -92,11 +100,6 @@
 </div>
 {% endif %}
 
-{% if viewing_own %}
-<div class="cal-actions">
-  <a class="btn btn-primary" href="{{ url_for('new_event', date=ref_date.isoformat()) }}">＋ 予定を追加</a>
-  <a class="btn btn-primary" href="{{ url_for('timer_view') }}">▶ タイマー開始</a>
-</div>
-{% endif %}
+
 
 {% endblock %}
