@@ -77,12 +77,17 @@ Volumeを含めてデータを消す場合に限り、`docker compose down -v`�
 ## Pythonでの起動方法
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
+cd ~/hackit/Team19
+docker compose down
+
+source .venv/Scripts/activate
+python -m pip install -r requirements-dev.txt
+
 export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
 export DEV_MAILBOX_ENABLED=true
-python seed.py      # デモデータが必要な場合だけ実行。既存DBはリセットされます
+
+#↓ データをリセットしてデモデータを入れる場合だけ
+python seed.py
 python app.py
 ```
 
