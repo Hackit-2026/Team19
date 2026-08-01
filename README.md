@@ -56,12 +56,52 @@ Flask + SQLiteで作られており、Docker ComposeまたはPythonで起動で�
 `.env.example`を`.env`へコピーし、`SECRET_KEY`をランダム値へ変更してから起動します。
 
 ```bash
-cp .env.example .env
-python -c "import secrets; print(secrets.token_urlsafe(32))"
-# 表示された値を.envのSECRET_KEYへ設定
+1. Docker Desktopを起動
+Docker Desktopを起動して、PowerShellで確認します。
+docker --version
+docker compose version
+両方のバージョンが表示されれば準備完了です。
+2. 環境設定ファイルを作成
+Copy-Item .env.example .env
+秘密鍵として使うランダム文字列を生成します。
+[guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
+表示された文字列をコピーして、.envを開きます。
+notepad .env
+ローカルデモ用なら次のように設定します。
+SECRET_KEY=ここに生成したランダム文字列
+DEV_MAILBOX_ENABLED=true
+SESSION_COOKIE_SECURE=false
+PORT=5000
+TZ=Asia/Tokyo
+.envはGitへコミットしません。
+3. Dockerを起動
 docker compose up --build -d
 docker compose ps
-```
+次のようにhealthyと表示されれば成功です。
+Up ... (healthy)
+4. 初回デモデータを作成
+初回だけ実行します。
+docker compose exec -T web python seed.py
+このコマンドは既存DBをリセットするので、データを残したい場合は再実行しないでください。
+5. ブラウザで開く
+http://127.0.0.1:5000
+デモアカウント：
+demo1@example.com / demo1234
+demo2@example.com / demo1234
+demo3@example.com / demo1234
+Dockerのログを確認
+docker compose logs -f web
+ログ表示だけを終了する場合はCtrl + Cです。コンテナは動き続けます。
+Dockerを停止
+docker compose down
+通常のdownではSQLiteデータは残ります。
+Dockerを再起動
+docker compose up -d
+コードや依存関係が変わった場合：
+docker compose up --build -d
+DBも完全に削除する場合
+docker compose down -v
+これはSQLiteのデータも削除するため、必要な場合だけ実行します。
 
 ブラウザで`http://127.0.0.1:5000`を開いてください。SQLiteはDocker Volumeの`/data/demo.db`へ保存されるため、コンテナを作り直しても保持されます。
 
@@ -77,18 +117,34 @@ Volumeを含めてデータを消す場合に限り、`docker compose down -v`�
 ## Pythonでの起動方法
 
 ```bash
-cd ~/hackit/Team19
-docker compose down
-
-source .venv/Scripts/activate
+Windows PowerShellで、初めて受け取った人がPython版を起動する手順です。Python 3.13がインストールされている前提です。
+初回セットアップ
+PowerShellを開き、プロジェクトへ移動します。
+cd C:\配置した場所\Team19
+Pythonを確認します。
+python --version
+仮想環境を作成します。
+python -m venv .venv
+仮想環境を有効化します。
+.\.venv\Scripts\Activate.ps1
+スクリプトの実行が無効というエラーが出た場合だけ、次を実行します。
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+先頭に(.venv)と表示されたら成功です。
+依存関係をインストールします。
+python -m pip install --upgrade pip
 python -m pip install -r requirements-dev.txt
-
-export SECRET_KEY="$(python -c 'import secrets; print(secrets.token_urlsafe(32))')"
-export DEV_MAILBOX_ENABLED=true
-
-#↓ データをリセットしてデモデータを入れる場合だけ
+起動に必要な環境変数を設定します。
+$env:SECRET_KEY = python -c "import secrets; print(secrets.token_urlsafe(32))"
+$env:DEV_MAILBOX_ENABLED = "true"
+$env:PORT = "5000"
+初回のデモデータを作成します。
 python seed.py
+注意：seed.pyを再実行すると、既存のローカルDBがリセットされます。
+アプリを起動します。
 python app.py
+ブラウザで開きます。
+http://127.0.0.1:5000
 ```
 
 Windows PowerShellでは仮想環境を`.venv\Scripts\Activate.ps1`で有効化し、環境変数を`$env:SECRET_KEY="..."`の形式で設定してください。
