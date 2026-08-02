@@ -10,7 +10,6 @@ app.py
 """
 
 import os
-import re
 from datetime import datetime, date, time, timedelta
 from functools import wraps
 from urllib.parse import urlsplit
@@ -20,6 +19,11 @@ from flask_wtf.csrf import CSRFProtect
 
 import db
 import calendar_utils as cu
+
+EVENT_COLOR_OPTIONS = [
+    "#3B82F6", "#22C55E", "#EF4444", "#F97316",
+    "#EAB308", "#8B5CF6", "#EC4899", "#64748B",
+]
 
 def env_flag(name, default=False):
     value = os.environ.get(name)
@@ -108,9 +112,9 @@ def inject_badges():
     if g.user:
         return {
             "unread_notifications": db.unread_notification_count(g.user["id"]),
-            "unread_feed": db.get_feed_unread_count(g.user["id"]),
+            "event_color_options": EVENT_COLOR_OPTIONS,
         }
-    return {}
+    return {"event_color_options": EVENT_COLOR_OPTIONS}
 
 
 # ---------------------------------------------------------------------------
@@ -426,7 +430,7 @@ def friend_calendar_view(user_id):
 # ---------------------------------------------------------------------------
 
 def event_color_style(custom_color):
-    if not custom_color or not re.fullmatch(r"#[0-9a-fA-F]{6}", custom_color):
+    if custom_color not in EVENT_COLOR_OPTIONS:
         return ""
     red, green, blue = (int(custom_color[i:i + 2], 16) for i in (1, 3, 5))
     luminance = (red * 299 + green * 587 + blue * 114) / 1000
@@ -440,8 +444,8 @@ def _parse_event_form():
     title = request.form.get("title", "").strip()
     memo = request.form.get("memo", "").strip()
     category = request.form.get("category", "").strip() or None
-    custom_color = request.form.get("custom_color", "").strip()
-    if not re.fullmatch(r"#[0-9a-fA-F]{6}", custom_color):
+    custom_color = request.form.get("custom_color", "").strip().upper()
+    if custom_color not in EVENT_COLOR_OPTIONS:
         custom_color = None
     visibility = request.form.get("visibility", "public")
     if visibility not in ("public", "private"):
@@ -499,7 +503,7 @@ def new_event():
         "title": "",
         "memo": "",
         "category": "",
-        "custom_color": "",
+        "custom_color": "#3B82F6",
         "visibility": "public",
     }
     query_date = request.args.get("date")
@@ -811,22 +815,6 @@ def reports_view():
         i["pct"] = round(i["seconds"] / total * 100) if total else 0
 
     return render_template("reports.html", period=period, label=label, items=items, total_label=cu.format_duration(total) if total else "記録なし")
-
-
-# ---------------------------------------------------------------------------
-# 活動フィード
-# ---------------------------------------------------------------------------
-
-@app.route("/feed")
-@login_required
-def feed_view():
-    items = db.get_feed(g.user["id"])
-    for item in items:
-        s = db.parse_dt(item["start_at"])
-        e = db.parse_dt(item["end_at"])
-        item["duration_label"] = cu.format_duration((e - s).total_seconds())
-    db.mark_feed_read(g.user["id"])
-    return render_template("feed.html", items=items)
 
 
 # ---------------------------------------------------------------------------

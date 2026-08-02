@@ -520,16 +520,53 @@ def test_calendar_direct_add_links_respect_owner_only(client, app):
     assert "/events/new" not in friend_month
 
 
-def test_event_custom_color_is_validated_and_rendered(client, app):
+def test_event_custom_color_is_limited_to_presets_and_rendered(client, app):
     user_id = db.create_user("Color", "color@example.com", "password", email_verified=True)
     start = datetime(2026, 8, 5, 10, 0)
-    event_id = db.add_event(user_id, "色付き予定", start, datetime(2026, 8, 5, 10, 30), custom_color="#ff5733")
-    invalid_id = db.add_event(user_id, "不正色", start, datetime(2026, 8, 5, 10, 30), custom_color="red")
-    assert db.get_event(event_id)["custom_color"] == "#ff5733"
+    event_id = db.add_event(user_id, "色付き予定", start, datetime(2026, 8, 5, 10, 30), custom_color="#ef4444")
+    invalid_id = db.add_event(user_id, "不正色", start, datetime(2026, 8, 5, 10, 30), custom_color="#ff5733")
+    assert db.get_event(event_id)["custom_color"] == "#EF4444"
     assert db.get_event(invalid_id)["custom_color"] is None
     with client.session_transaction() as session:
         session["user_id"] = user_id
-    assert "background-color: #ff5733" in client.get("/calendar?view=week&date=2026-08-05").get_data(as_text=True)
+    week = client.get("/calendar?view=week&date=2026-08-05").get_data(as_text=True)
+    month = client.get("/calendar?view=month&date=2026-08-05").get_data(as_text=True)
+    assert "background-color: #EF4444" in week
+    assert "background-color: #EF4444" in month
+
+
+def test_event_color_form_uses_preset_radios(client, app):
+    user_id = db.create_user("Palette", "palette@example.com", "password", email_verified=True)
+    with client.session_transaction() as session:
+        session["user_id"] = user_id
+    form = client.get("/events/new").get_data(as_text=True)
+    assert 'type="color"' not in form
+    assert 'type="radio" name="custom_color" value="#3B82F6"' in form
+    assert 'type="radio" name="custom_color" value="#EAB308"' in form
+
+
+def test_friends_page_shows_progress_without_calendar_link(client, app):
+    user_id = db.create_user("Owner", "friend-owner@example.com", "password", email_verified=True)
+    friend_id = db.create_user("Friend", "friend-progress@example.com", "password", email_verified=True)
+    db.send_friend_request(user_id, "friend-progress@example.com")
+    friendship_id = db.get_received_requests(friend_id)[0]["friendship_id"]
+    db.respond_to_request(friendship_id, friend_id, accept=True)
+    with client.session_transaction() as session:
+        session["user_id"] = user_id
+    page = client.get("/friends").get_data(as_text=True)
+    assert "予定を見る" not in page
+    assert f"/progress/friend/{friend_id}" in page
+
+
+def test_navigation_hides_feed_and_feed_route_is_removed(client, app):
+    user_id = db.create_user("Navigation", "navigation@example.com", "password", email_verified=True)
+    with client.session_transaction() as session:
+        session["user_id"] = user_id
+    page = client.get("/calendar").get_data(as_text=True)
+    assert ">フィード<" not in page
+    assert "href=\"/feed\"" not in page
+    assert ">集計<" not in page
+    assert client.get("/feed").status_code == 404
 
 
 def test_friend_request_is_managed_from_notifications(client, app):

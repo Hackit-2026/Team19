@@ -3,7 +3,7 @@ db.py
 -----
 フル機能版Webアプリのデータ層。SQLite + 標準sqlite3モジュールのみを使用する
 (要件定義フェーズで作成した「02_データベース設計書.md」のテーブル定義をベースに、
-Phase2で計画していた機能(目標共有・活動フィード・メール認証等)も含めて実装したもの)。
+Phase2で計画していた機能(目標共有・メール認証等)も含めて実装したもの)。
 
 日時はすべて 'YYYY-MM-DD HH:MM:SS' 形式のTEXTとして保存する(文字列比較で
 時系列ソートできる形式)。デモのため、タイムゾーンは扱わずローカル時刻のみ。
@@ -14,7 +14,6 @@ outbox テーブルに保存して「開発用メールボックス」画面(/de
 """
 
 import os
-import re
 import secrets
 import sqlite3
 from datetime import datetime, timedelta
@@ -27,6 +26,10 @@ DT_FMT = "%Y-%m-%d %H:%M:%S"
 
 TASK_PRESETS = ["作業", "勉強", "休憩", "運動", "読書", "その他"]
 CATEGORY_PRESETS = ["学習", "仕事", "運動", "趣味", "その他"]
+EVENT_COLOR_OPTIONS = {
+    "#3B82F6", "#22C55E", "#EF4444", "#F97316",
+    "#EAB308", "#8B5CF6", "#EC4899", "#64748B",
+}
 
 EMAIL_VERIFICATION_TTL_HOURS = 24
 PASSWORD_RESET_TTL_MINUTES = 60
@@ -160,11 +163,6 @@ def init_db(reset=False):
         );
 
         CREATE INDEX IF NOT EXISTS idx_progress_updates_goal ON progress_updates(goal_id, created_at);
-
-        CREATE TABLE IF NOT EXISTS feed_reads (
-            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-            last_read_at TEXT NOT NULL
-        );
 
         CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -455,7 +453,7 @@ def find_conflicts(user_id, start_at, end_at, exclude_id=None):
 def add_event(user_id, title, start_at, end_at, memo="", source="manual", category=None, visibility="public", custom_color=None):
     conn = get_connection()
     try:
-        custom_color = custom_color if custom_color and re.fullmatch(r"#[0-9a-fA-F]{6}", custom_color) else None
+        custom_color = custom_color.upper() if custom_color and custom_color.upper() in EVENT_COLOR_OPTIONS else None
         ts = now_str()
         cur = conn.execute(
             "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, custom_color, created_at, updated_at) "
@@ -480,7 +478,7 @@ def get_event(event_id):
 def update_event(event_id, title, start_at, end_at, memo="", category=None, visibility="public", custom_color=None):
     conn = get_connection()
     try:
-        custom_color = custom_color if custom_color and re.fullmatch(r"#[0-9a-fA-F]{6}", custom_color) else None
+        custom_color = custom_color.upper() if custom_color and custom_color.upper() in EVENT_COLOR_OPTIONS else None
         conn.execute(
             "UPDATE events SET title = ?, start_at = ?, end_at = ?, memo = ?, category = ?, visibility = ?, custom_color = ?, updated_at = ? WHERE id = ?",
             (title, to_str(start_at), to_str(end_at), memo, category or None, visibility, custom_color, now_str(), event_id),
@@ -842,64 +840,6 @@ def delete_progress_goal(goal_id, user_id):
         cur = conn.execute("DELETE FROM progress_goals WHERE id = ? AND user_id = ?", (goal_id, user_id))
         conn.commit()
         return cur.rowcount > 0
-    finally:
-        conn.close()
-
-
-# ---------------------------------------------------------------------------
-# 活動フィード
-# ---------------------------------------------------------------------------
-
-def get_feed(user_id, limit=50):
-    conn = get_connection()
-    try:
-        rows = conn.execute(
-            """
-            SELECT e.id, e.user_id, u.display_name, e.title, e.start_at, e.end_at, e.created_at
-            FROM events e
-            JOIN users u ON u.id = e.user_id
-            JOIN friendships f
-              ON (f.requester_id = ? AND f.addressee_id = e.user_id)
-              OR (f.addressee_id = ? AND f.requester_id = e.user_id)
-            WHERE f.status = 'accepted' AND e.visibility = 'public'
-            ORDER BY e.created_at DESC
-            LIMIT ?
-            """,
-            (user_id, user_id, limit),
-        ).fetchall()
-        return [dict(r) for r in rows]
-    finally:
-        conn.close()
-
-
-def get_feed_last_read(user_id):
-    conn = get_connection()
-    try:
-        row = conn.execute("SELECT last_read_at FROM feed_reads WHERE user_id = ?", (user_id,)).fetchone()
-        return row["last_read_at"] if row else None
-    finally:
-        conn.close()
-
-
-def get_feed_unread_count(user_id):
-    last_read = get_feed_last_read(user_id)
-    feed = get_feed(user_id, limit=200)
-    if last_read is None:
-        return len(feed)
-    return sum(1 for item in feed if item["created_at"] > last_read)
-
-
-def mark_feed_read(user_id):
-    conn = get_connection()
-    try:
-        existing = conn.execute("SELECT user_id FROM feed_reads WHERE user_id = ?", (user_id,)).fetchone()
-        if existing:
-            conn.execute("UPDATE feed_reads SET last_read_at = ? WHERE user_id = ?", (now_str(), user_id))
-        else:
-            conn.execute(
-                "INSERT INTO feed_reads (user_id, last_read_at) VALUES (?, ?)", (user_id, now_str())
-            )
-        conn.commit()
     finally:
         conn.close()
 
