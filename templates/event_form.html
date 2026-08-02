@@ -46,18 +46,16 @@
     </div>
     <div class="empty-note">色を選択しない既存予定はカテゴリの色で表示されます。</div>
 
+    <label class="field-label" for="progress-goal">関連する進捗目標(任意)</label>
+    <select id="progress-goal" class="field" name="progress_goal_id">
+      <option value="">指定なし</option>
+      {% for goal in progress_goals %}
+        <option value="{{ goal.id }}" {{ 'selected' if form.progress_goal_id|string == goal.id|string else '' }}>{{ goal.title }}</option>
+      {% endfor %}
+    </select>
+
     <label class="field-label">メモ(任意)</label>
     <textarea class="field" name="memo" rows="3">{{ form.memo }}</textarea>
-
-    <label class="field-label">公開範囲</label>
-    <div class="row" style="gap:16px;">
-      <label style="font-size:13px; display:flex; align-items:center; gap:4px;">
-        <input type="radio" name="visibility" value="public" {{ 'checked' if form.visibility != 'private' else '' }}> フレンドに公開
-      </label>
-      <label style="font-size:13px; display:flex; align-items:center; gap:4px;">
-        <input type="radio" name="visibility" value="private" {{ 'checked' if form.visibility == 'private' else '' }}> 非公開(自分のみ)
-      </label>
-    </div>
 
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">{{ '更新する' if mode == 'edit' else '追加する' }}</button>
@@ -66,6 +64,23 @@
   </form>
 
   {% if mode == 'edit' %}
+  <section class="event-completion-panel">
+    <h2>実績</h2>
+    {% if event.is_completed %}
+      <p>完了済み・実績 {{ event.actual_minutes }}分</p>
+      <form method="post" action="{{ url_for('uncomplete_event', event_id=event_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn">完了を取り消す</button>
+      </form>
+    {% else %}
+      <form method="post" action="{{ url_for('complete_event', event_id=event_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-label" for="actual-minutes">実際に作業した時間(分)</label>
+        <input id="actual-minutes" class="field small" type="number" name="actual_minutes" min="0" value="{{ event_duration_minutes }}" required>
+        <button type="submit" class="btn btn-primary">完了にする</button>
+      </form>
+    {% endif %}
+  </section>
   <form method="post" action="{{ url_for('delete_event', event_id=event_id) }}" class="delete-form"
         onsubmit="return confirm('この予定を削除しますか？');">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

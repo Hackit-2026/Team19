@@ -53,8 +53,17 @@
         placeholder="自由入力..."
         maxlength="100"
         autocomplete="off"
-        required
       >
+
+      {% if incomplete_events %}
+      <label class="field-label" for="timer-event">予定と連携する(任意)</label>
+      <select id="timer-event" class="field" name="event_id">
+        <option value="">予定を選ばない</option>
+        {% for event in incomplete_events %}
+          <option value="{{ event.id }}" data-title="{{ event.title }}">{{ event.start_at[:16] }} {{ event.title }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
 
       <p id="selected-task" class="timer-selected-task" aria-live="polite">内容を選択</p>
       <div class="elapsed-display timer-idle-time" aria-label="未計測">00:00:00</div>
@@ -68,6 +77,7 @@
         const selectedTask = document.getElementById("selected-task");
         const presetButtons = [...document.querySelectorAll("[data-task-preset]")];
         const resetButton = document.getElementById("timer-reset");
+        const eventSelect = document.getElementById("timer-event");
 
         function updateSelection(value) {
           const task = value.trim();
@@ -87,6 +97,15 @@
         });
 
         input.addEventListener("input", () => updateSelection(input.value));
+        if (eventSelect) {
+          eventSelect.addEventListener("change", () => {
+            const option = eventSelect.options[eventSelect.selectedIndex];
+            if (option.value) {
+              input.value = option.dataset.title;
+              updateSelection(input.value);
+            }
+          });
+        }
         resetButton.addEventListener("click", () => {
           input.value = "";
           updateSelection("");

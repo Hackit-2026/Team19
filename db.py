@@ -25,8 +25,8 @@ DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo
 DB_PATH = os.path.abspath(os.environ.get("DATABASE_PATH", DEFAULT_DB_PATH))
 DT_FMT = "%Y-%m-%d %H:%M:%S"
 
-TASK_PRESETS = ["作業", "勉強", "休憩", "運動", "読書", "その他"]
-CATEGORY_PRESETS = ["学習", "仕事", "運動", "趣味", "その他"]
+TASK_PRESETS = ["作業", "勉強", "休憩", "運動", "読書"]
+CATEGORY_PRESETS = ["筋トレ", "勉強", "作業", "授業", "アルバイト", "休憩"]
 EVENT_COLOR_OPTIONS = {
     "#3B82F6", "#22C55E", "#EF4444", "#F97316",
     "#EAB308", "#8B5CF6", "#EC4899", "#64748B",
@@ -178,6 +178,16 @@ def init_db(reset=False):
             created_at TEXT NOT NULL
         );
 
+        CREATE TABLE IF NOT EXISTS activity_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            event_id INTEGER REFERENCES events(id) ON DELETE SET NULL,
+            kind TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_activity_logs_user_created ON activity_logs(user_id, created_at);
+
         CREATE TABLE IF NOT EXISTS outbox (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             to_email TEXT NOT NULL,
@@ -189,8 +199,13 @@ def init_db(reset=False):
     )
     # 既存DBに対する後方互換マイグレーション(列追加)
     _ensure_column(conn, "events", "category", "TEXT")
-    _ensure_column(conn, "events", "visibility", "TEXT NOT NULL DEFAULT 'public'")
+    _ensure_column(conn, "events", "visibility", "TEXT NOT NULL DEFAULT 'private'")
     _ensure_column(conn, "events", "custom_color", "TEXT")
+    _ensure_column(conn, "events", "is_completed", "BOOLEAN NOT NULL DEFAULT 0")
+    _ensure_column(conn, "events", "actual_minutes", "INTEGER")
+    _ensure_column(conn, "events", "completed_at", "TEXT")
+    _ensure_column(conn, "events", "progress_goal_id", "INTEGER REFERENCES progress_goals(id) ON DELETE SET NULL")
+    _ensure_column(conn, "active_timers", "event_id", "INTEGER REFERENCES events(id) ON DELETE SET NULL")
     _ensure_column(conn, "goals", "manual_rate", "INTEGER")
     _ensure_column(conn, "users", "friend_code", "TEXT")
     users_without_code = conn.execute(
@@ -490,15 +505,16 @@ def find_conflicts(user_id, start_at, end_at, exclude_id=None):
         conn.close()
 
 
-def add_event(user_id, title, start_at, end_at, memo="", source="manual", category=None, visibility="public", custom_color=None):
+def add_event(user_id, title, start_at, end_at, memo="", source="manual", category=None, visibility="private", custom_color=None, progress_goal_id=None):
     conn = get_connection()
     try:
+        visibility = "private"
         custom_color = custom_color.upper() if custom_color and custom_color.upper() in EVENT_COLOR_OPTIONS else None
         ts = now_str()
         cur = conn.execute(
-            "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, custom_color, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, title, to_str(start_at), to_str(end_at), memo, source, category or None, visibility, custom_color, ts, ts),
+            "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, custom_color, progress_goal_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, title, to_str(start_at), to_str(end_at), memo, source, category or None, visibility, custom_color, progress_goal_id, ts, ts),
         )
         conn.commit()
         return cur.lastrowid
@@ -515,17 +531,148 @@ def get_event(event_id):
         conn.close()
 
 
-def update_event(event_id, title, start_at, end_at, memo="", category=None, visibility="public", custom_color=None):
+def update_event(event_id, title, start_at, end_at, memo="", category=None, visibility="private", custom_color=None, progress_goal_id=None):
     conn = get_connection()
     try:
+        visibility = "private"
         custom_color = custom_color.upper() if custom_color and custom_color.upper() in EVENT_COLOR_OPTIONS else None
         conn.execute(
-            "UPDATE events SET title = ?, start_at = ?, end_at = ?, memo = ?, category = ?, visibility = ?, custom_color = ?, updated_at = ? WHERE id = ?",
-            (title, to_str(start_at), to_str(end_at), memo, category or None, visibility, custom_color, now_str(), event_id),
+            "UPDATE events SET title = ?, start_at = ?, end_at = ?, memo = ?, category = ?, visibility = ?, custom_color = ?, progress_goal_id = ?, updated_at = ? WHERE id = ?",
+            (title, to_str(start_at), to_str(end_at), memo, category or None, visibility, custom_color, progress_goal_id, now_str(), event_id),
         )
         conn.commit()
     finally:
         conn.close()
+
+
+def event_duration_minutes(event):
+    return max(0, int((parse_dt(event["end_at"]) - parse_dt(event["start_at"])).total_seconds() // 60))
+
+
+def complete_event(event_id, user_id, actual_minutes):
+    if actual_minutes is None or int(actual_minutes) < 0:
+        return False
+    conn = get_connection()
+    try:
+        event = conn.execute("SELECT * FROM events WHERE id = ? AND user_id = ?", (event_id, user_id)).fetchone()
+        if event is None:
+            return False
+        actual_minutes = int(actual_minutes)
+        ts = now_str()
+        conn.execute(
+            "UPDATE events SET is_completed = 1, actual_minutes = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+            (actual_minutes, ts, ts, event_id),
+        )
+        if not event["is_completed"]:
+            conn.execute(
+                "INSERT INTO activity_logs (user_id, event_id, kind, message, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, event_id, "event_completed", f"「{event['title']}」を{actual_minutes}分実施しました", ts),
+            )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def uncomplete_event(event_id, user_id):
+    conn = get_connection()
+    try:
+        event = conn.execute("SELECT * FROM events WHERE id = ? AND user_id = ?", (event_id, user_id)).fetchone()
+        if event is None:
+            return False
+        ts = now_str()
+        conn.execute(
+            "UPDATE events SET is_completed = 0, actual_minutes = NULL, completed_at = NULL, updated_at = ? WHERE id = ?",
+            (ts, event_id),
+        )
+        if event["is_completed"]:
+            conn.execute(
+                "INSERT INTO activity_logs (user_id, event_id, kind, message, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, event_id, "event_uncompleted", f"「{event['title']}」の完了を取り消しました", ts),
+            )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def get_activity_logs(user_id, limit=100):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM activity_logs WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def _progress_category(category):
+    value = (category or "").strip().lower()
+    if any(word in value for word in ("筋トレ", "運動", "workout", "training")):
+        return "workout", "筋トレ"
+    if any(word in value for word in ("勉強", "学習", "study")):
+        return "study", "勉強"
+    if any(word in value for word in ("作業", "開発", "仕事", "work", "development")):
+        return "work", "作業"
+    if any(word in value for word in ("授業", "講義", "class", "lecture")):
+        return "class", "授業"
+    if any(word in value for word in ("アルバイト", "バイト", "parttime", "part-time")):
+        return "parttime", "アルバイト"
+    if any(word in value for word in ("休憩", "休み", "break", "rest")):
+        return "break", "休憩"
+    return None, None
+
+
+def _progress_summary(events):
+    planned = sum(event_duration_minutes(event) for event in events)
+    actual = sum(int(event["actual_minutes"] or 0) for event in events if event["is_completed"])
+    rate = round(actual / planned * 100, 1) if planned else 0
+    return {
+        "planned_minutes": planned,
+        "actual_minutes": actual,
+        "remaining_minutes": max(0, planned - actual),
+        "over_minutes": max(0, actual - planned),
+        "rate": rate,
+        "bar_rate": min(100, rate),
+        "completed_count": sum(1 for event in events if event["is_completed"]),
+        "event_count": len(events),
+    }
+
+
+def get_auto_category_progress(user_id, period, ref_date=None):
+    from datetime import time as dtime
+    ref_date = ref_date or datetime.now().date()
+    if period == "week":
+        start_date = ref_date - timedelta(days=ref_date.weekday())
+        end_date = start_date + timedelta(days=7)
+    else:
+        start_date = ref_date.replace(day=1)
+        end_date = (start_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+    events = get_events_range(user_id, datetime.combine(start_date, dtime.min), datetime.combine(end_date, dtime.min))
+    groups = {}
+    for event in events:
+        key, label = _progress_category(event.get("category"))
+        if key is None:
+            continue
+        groups.setdefault(key, {"key": key, "label": label, "events": []})["events"].append(event)
+    cards = []
+    for group in groups.values():
+        for event in group["events"]:
+            event["planned_minutes"] = event_duration_minutes(event)
+        group.update(_progress_summary(group["events"]))
+        cards.append(group)
+    cards.sort(key=lambda card: card["label"])
+    return {"period": period, "start_date": start_date, "end_date": end_date, "cards": cards}
+
+
+def get_auto_category_detail(user_id, period, category_key, ref_date=None):
+    summary = get_auto_category_progress(user_id, period, ref_date)
+    for card in summary["cards"]:
+        if card["key"] == category_key:
+            return card
+    return None
 
 
 def delete_event(event_id):
@@ -573,12 +720,24 @@ def get_active_timer(user_id):
         conn.close()
 
 
-def start_timer(user_id, task):
+def get_incomplete_events(user_id, limit=100):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE user_id = ? AND is_completed = 0 ORDER BY start_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def start_timer(user_id, task, event_id=None):
     conn = get_connection()
     try:
         conn.execute(
-            "INSERT INTO active_timers (user_id, task, started_at) VALUES (?, ?, ?)",
-            (user_id, task, now_str()),
+            "INSERT INTO active_timers (user_id, task, started_at, event_id) VALUES (?, ?, ?, ?)",
+            (user_id, task, now_str(), event_id),
         )
         conn.commit()
     finally:
@@ -598,14 +757,33 @@ def stop_timer(user_id):
     conn = get_connection()
     try:
         ts = now_str()
-        cur = conn.execute(
-            "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, '', 'timer', NULL, 'public', ?, ?)",
-            (user_id, active["task"], to_str(start_at), to_str(end_at), ts, ts),
+        actual_minutes = max(1, int((end_at - start_at).total_seconds() // 60))
+        if active.get("event_id"):
+            event = conn.execute(
+                "SELECT id FROM events WHERE id = ? AND user_id = ?", (active["event_id"], user_id)
+            ).fetchone()
+        else:
+            event = None
+        if event:
+            cur = conn.execute(
+                "UPDATE events SET is_completed = 1, actual_minutes = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+                (actual_minutes, ts, ts, active["event_id"]),
+            )
+            event_id = active["event_id"]
+        else:
+            cur = conn.execute(
+                "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, is_completed, actual_minutes, completed_at, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, '', 'timer', NULL, 'private', 1, ?, ?, ?, ?)",
+                (user_id, active["task"], to_str(start_at), to_str(end_at), actual_minutes, ts, ts, ts),
+            )
+            event_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO activity_logs (user_id, event_id, kind, message, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, event_id, "timer_stopped", f"「{active['task']}」をタイマーで{actual_minutes}分実施しました", ts),
         )
         conn.execute("DELETE FROM active_timers WHERE user_id = ?", (user_id,))
         conn.commit()
-        return cur.lastrowid
+        return event_id
     finally:
         conn.close()
 
@@ -797,7 +975,7 @@ def get_progress_goals(user_id):
             "ORDER BY CASE WHEN progress_rate >= 100 THEN 1 ELSE 0 END, updated_at DESC, id DESC",
             (user_id,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [_with_goal_auto_progress(dict(row)) for row in rows]
     finally:
         conn.close()
 
@@ -811,9 +989,34 @@ def get_public_progress_goals(user_id):
             "ORDER BY CASE WHEN progress_rate >= 100 THEN 1 ELSE 0 END, updated_at DESC, id DESC",
             (user_id,),
         ).fetchall()
-        return [dict(row) for row in rows]
+        return [_with_goal_auto_progress(dict(row)) for row in rows]
     finally:
         conn.close()
+
+
+def _with_goal_auto_progress(goal):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE user_id = ? AND progress_goal_id = ? ORDER BY start_at",
+            (goal["user_id"], goal["id"]),
+        ).fetchall()
+        events = [dict(row) for row in rows]
+    finally:
+        conn.close()
+    summary = _progress_summary(events)
+    goal["auto_progress"] = summary
+    if summary["event_count"]:
+        goal["progress_rate"] = summary["rate"]
+        completed_times = [event["completed_at"] for event in events if event.get("completed_at")]
+        if completed_times:
+            goal["updated_at"] = max([goal["updated_at"]] + completed_times)
+    return goal
+
+
+def get_progress_goal_with_auto_progress(goal_id, user_id):
+    goal = get_progress_goal(goal_id, user_id)
+    return _with_goal_auto_progress(goal) if goal else None
 
 
 def update_progress_goal(goal_id, user_id, title, description, deadline, is_public):

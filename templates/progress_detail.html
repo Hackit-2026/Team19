@@ -8,11 +8,12 @@
     <div class="named-detail-rate"><span>現在の進捗</span><strong id="progress-rate-display">{{ goal.progress_rate }}%</strong></div>
     <div class="named-progress-bar named-progress-large"><span id="progress-bar" style="width: {{ goal.progress_rate }}%"></span></div>
     <p class="named-detail-meta">{{ '達成済み' if goal.progress_rate >= 100 else '進行中' }} ・ {{ '公開' if goal.is_public else '非公開' }}{% if goal.deadline %} ・期限 {{ goal.deadline }}{% endif %}</p>
+    {% if goal.auto_progress.event_count %}<p>関連予定：{{ goal.auto_progress.event_count }}件 ／ 予定 {{ goal.auto_progress.planned_minutes // 60 }}時間{{ goal.auto_progress.planned_minutes % 60 }}分 ／ 実績 {{ goal.auto_progress.actual_minutes // 60 }}時間{{ goal.auto_progress.actual_minutes % 60 }}分</p>{% else %}
     <form method="post" action="{{ url_for('progress_goal_update_rate', goal_id=goal.id) }}" class="named-update-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <label for="progress-range">今回の進捗</label><div class="named-quick-buttons"><button type="button" data-delta="-10">－10%</button><button type="button" data-delta="-5">－5%</button><button type="button" data-delta="5">＋5%</button><button type="button" data-delta="10">＋10%</button></div>
       <input id="progress-range" type="range" name="progress_rate" min="0" max="100" step="1" value="{{ goal.progress_rate }}"><output id="progress-output">{{ goal.progress_rate }}%</output>
       <label for="progress-note">今回行ったこと・メモ</label><textarea id="progress-note" name="note" rows="3"></textarea><button class="btn btn-primary named-save-button" type="submit">進捗を登録</button>
-    </form>
+    </form>{% endif %}
   </section>
   <section class="named-history"><h2>更新履歴</h2>{% if updates %}<ul>{% for update in updates %}<li><strong>{{ update.previous_rate }}% → {{ update.new_rate }}%</strong><span>{{ update.created_at }}</span>{% if update.note %}<p>{{ update.note }}</p>{% endif %}</li>{% endfor %}</ul>{% else %}<p>進捗の更新履歴はまだありません。</p>{% endif %}</section>
   <form method="post" action="{{ url_for('progress_goal_delete', goal_id=goal.id) }}" onsubmit="return confirm('この目標と更新履歴を削除しますか？');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-warn" type="submit">目標を削除</button></form>

@@ -38,4 +38,11 @@
 .named-goal-form label { display: grid; gap: 6px; color: #344054; font-size: 14px; font-weight: 700; }
 .named-goal-form .named-public-toggle { display: flex; align-items: center; gap: 8px; }
 .named-form-actions { display: flex; gap: 8px; }
+.progress-period-tabs { display: flex; gap: 8px; margin: 0 0 16px; }
+.auto-progress-meta { display: grid; gap: 4px; color: #475467; font-size: 13px; }
+.named-goals-subheader { margin-top: 32px; }
+.named-goals-subheader h2 { margin: 0; font-size: 20px; }
+.auto-event-row { display: grid; grid-template-columns: 1fr auto; gap: 6px 12px; padding: 12px 0; border-top: 1px solid #e5e7eb; }
+.auto-event-row span { color: #667085; font-size: 13px; }
+.auto-event-row .btn { grid-row: 1 / span 2; grid-column: 2; align-self: center; }
 @media (max-width: 700px) { .named-goal-grid { grid-template-columns: 1fr; } .named-goals-header { align-items: stretch; flex-direction: column; } .named-goals-header .btn { text-align: center; } .named-detail-head { flex-direction: column; } .named-quick-buttons { gap: 5px; } .named-quick-buttons button { padding: 6px 2px; font-size: 12px; } .named-goal-meta { align-items: flex-start; flex-direction: column; } }

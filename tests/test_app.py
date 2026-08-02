@@ -1,5 +1,5 @@
 import os
-from datetime import datetime
+from datetime import datetime, date
 import re
 import sqlite3
 import subprocess
@@ -501,7 +501,7 @@ def test_new_event_query_prefill_and_invalid_values(client, app):
     assert "日付または時刻の形式が正しくありません" in invalid.get_data(as_text=True)
 
 
-def test_calendar_direct_add_links_respect_owner_only(client, app):
+def test_calendar_is_not_available_to_other_users(client, app):
     owner = db.create_user("Owner", "calendar-owner@example.com", "password", email_verified=True)
     friend = db.create_user("Friend", "calendar-friend@example.com", "password", email_verified=True)
     db.send_friend_request(owner, db.get_user_by_id(friend)["friend_code"])
@@ -517,8 +517,93 @@ def test_calendar_direct_add_links_respect_owner_only(client, app):
 
     with client.session_transaction() as session:
         session["user_id"] = friend
-    friend_month = client.get(f"/calendar/{owner}?view=month&date=2026-08-05").get_data(as_text=True)
-    assert "/events/new" not in friend_month
+    assert client.get(f"/calendar/{owner}?view=month&date=2026-08-05").status_code == 404
+
+
+def test_events_are_private_without_visibility_form_input(client, app):
+    user_id = db.create_user("Private", "private@example.com", "password", email_verified=True)
+    with client.session_transaction() as session:
+        session["user_id"] = user_id
+
+    form = client.get("/events/new")
+    html = form.get_data(as_text=True)
+    assert 'name="visibility"' not in html
+    assert "フレンドに公開" not in html
+    assert "非公開(自分のみ)" not in html
+
+    response = client.post(
+        "/events/new",
+        data={
+            "csrf_token": csrf_token(form),
+            "date": "2026-08-05",
+            "start_time": "10:00",
+            "end_time": "10:30",
+            "title": "本人専用予定",
+            "memo": "",
+            "category": "",
+            "custom_color": "#3B82F6",
+        },
+    )
+    assert response.status_code == 302
+    event = db.get_events_range(user_id, datetime(2026, 8, 5), datetime(2026, 8, 6))[0]
+    assert event["visibility"] == "private"
+
+    edit = client.get(f"/events/{event['id']}/edit").get_data(as_text=True)
+    assert 'name="visibility"' not in edit
+    week = client.get("/calendar?view=week&date=2026-08-05").get_data(as_text=True)
+    month = client.get("/calendar?view=month&date=2026-08-05").get_data(as_text=True)
+    assert "🔒" not in week
+    assert "🔒" not in month
+
+
+def test_auto_category_progress_uses_planned_and_completed_minutes(app):
+    user_id = db.create_user("Auto", "auto-progress@example.com", "password", email_verified=True)
+    events = [
+        db.add_event(user_id, "勉強1", datetime(2026, 8, 3, 13), datetime(2026, 8, 3, 15), category="勉強"),
+        db.add_event(user_id, "勉強2", datetime(2026, 8, 6, 18), datetime(2026, 8, 6, 19, 30), category="勉強"),
+        db.add_event(user_id, "勉強3", datetime(2026, 8, 10, 10), datetime(2026, 8, 10, 12, 30), category="勉強"),
+    ]
+    card = db.get_auto_category_progress(user_id, "month", date(2026, 8, 10))["cards"][0]
+    assert card["planned_minutes"] == 360
+    assert card["actual_minutes"] == 0
+
+    assert db.complete_event(events[0], user_id, 120)
+    assert db.complete_event(events[0], user_id, 120)
+    card = db.get_auto_category_progress(user_id, "month", date(2026, 8, 10))["cards"][0]
+    assert card["actual_minutes"] == 120
+    assert card["rate"] == 33.3
+    assert card["completed_count"] == 1
+
+    assert db.uncomplete_event(events[0], user_id)
+    assert db.get_auto_category_progress(user_id, "month", date(2026, 8, 10))["cards"][0]["actual_minutes"] == 0
+
+
+def test_auto_progress_skips_existing_other_category(app):
+    user_id = db.create_user("Category", "category-progress@example.com", "password", email_verified=True)
+    db.add_event(user_id, "既存その他", datetime(2026, 8, 3, 10), datetime(2026, 8, 3, 11), category="その他")
+    assert db.get_auto_category_progress(user_id, "month", date(2026, 8, 3))["cards"] == []
+
+
+def test_calendar_actual_time_visual_ratio_and_overtime(client, app):
+    user_id = db.create_user("Visual", "visual-progress@example.com", "password", email_verified=True)
+    start = datetime(2026, 8, 5, 10)
+    event_id = db.add_event(user_id, "実績表示", start, datetime(2026, 8, 5, 12), category="勉強")
+    assert db.complete_event(event_id, user_id, 60)
+    with client.session_transaction() as session:
+        session["user_id"] = user_id
+    week = client.get("/calendar?view=week&date=2026-08-05").get_data(as_text=True)
+    month = client.get("/calendar?view=month&date=2026-08-05").get_data(as_text=True)
+    assert "--actual-ratio: 50.0%" in week
+    assert "event-actual-fill" in week
+    assert "--actual-ratio: 50.0%" in month
+
+    assert db.complete_event(event_id, user_id, 150)
+    week = client.get("/calendar?view=week&date=2026-08-05").get_data(as_text=True)
+    assert "--actual-ratio: 100%" in week
+    assert "+30分" in week
+
+    zero = {"start_at": "2026-08-05 10:00:00", "end_at": "2026-08-05 10:00:00", "is_completed": 1, "actual_minutes": 10}
+    assert app_module.event_progress_visual(zero)["ratio"] == 0
 
 
 def test_event_custom_color_is_limited_to_presets_and_rendered(client, app):

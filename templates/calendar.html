@@ -209,6 +209,7 @@
 
             {% set ev = item.event %}
             {% set short_event = item.display_duration <= 15 %}
+            {% set visual = event_progress_visual(ev) %}
 
             {% if viewing_own %}
 
@@ -226,20 +227,13 @@
                 style="
                   top: {{ item.display_top * 1.5 }}px;
                   height: {{ item.display_duration * 1.5 }}px;
+                  --actual-ratio: {{ visual.ratio }}%;
                   {{ event_color_style(ev.custom_color) }}
                 "
-                title="{{ ev.title }}"
+                title="{{ ev.title }}（実績 {{ visual.actual_minutes }}分 / 予定 {{ visual.planned_minutes }}分）"
               >
-                <span class="ev-title">
-                  {{ '🔒 ' if ev.visibility == 'private' else '' }}
-                  {{ ev.title }}
-                </span>
-
-                {% if not short_event %}
-                  <span class="ev-time">
-                    {{ ev.start_at[11:16] }}–{{ ev.end_at[11:16] }}
-                  </span>
-                {% endif %}
+                <span class="event-actual-fill" aria-hidden="true"></span>
+                <span class="event-content"><span class="ev-title">{{ ev.title }}</span>{% if not short_event %}<span class="ev-time">{{ ev.start_at[11:16] }}–{{ ev.end_at[11:16] }}</span>{% endif %}{% if item.display_duration >= 45 %}<span class="ev-progress-meta">実績 {{ visual.actual_minutes }}分 / 予定 {{ visual.planned_minutes }}分{% if visual.overtime_minutes %} ・+{{ visual.overtime_minutes }}分{% endif %}</span>{% endif %}</span>
               </a>
 
             {% else %}
@@ -255,19 +249,12 @@
                 style="
                   top: {{ item.display_top * 1.5 }}px;
                   height: {{ item.display_duration * 1.5 }}px;
+                  --actual-ratio: {{ visual.ratio }}%;
                   {{ event_color_style(ev.custom_color) }}
                 "
                 title="{{ ev.title }}"
               >
-                <span class="ev-title">
-                  {{ ev.title }}
-                </span>
-
-                {% if not short_event %}
-                  <span class="ev-time">
-                    {{ ev.start_at[11:16] }}–{{ ev.end_at[11:16] }}
-                  </span>
-                {% endif %}
+                <span class="event-actual-fill" aria-hidden="true"></span><span class="event-content"><span class="ev-title">{{ ev.title }}</span>{% if not short_event %}<span class="ev-time">{{ ev.start_at[11:16] }}–{{ ev.end_at[11:16] }}</span>{% endif %}</span>
               </span>
 
             {% endif %}
@@ -316,16 +303,17 @@
               </a>
 
               {% for ev in cell.events[:3] %}
+                {% set visual = event_progress_visual(ev) %}
                 {% if viewing_own %}
                   <a
                     class="ev calendar-event category-{{ category_class(ev.category) }}"
                     href="{{ url_for('edit_event', event_id=ev.id) }}"
-                    style="{{ event_color_style(ev.custom_color) }}"
+                    style="--actual-ratio: {{ visual.ratio }}%; {{ event_color_style(ev.custom_color) }}"
                   >
-                    {{ '🔒 ' if ev.visibility == 'private' else '' }}{{ ev.title }}
+                    <span class="event-actual-fill" aria-hidden="true"></span><span class="event-content">{{ ev.title }}{% if visual.overtime_minutes %} <small>+{{ visual.overtime_minutes }}分</small>{% endif %}</span>
                   </a>
                 {% else %}
-                  <span class="ev calendar-event category-{{ category_class(ev.category) }}" style="{{ event_color_style(ev.custom_color) }}">{{ ev.title }}</span>
+                  <span class="ev calendar-event category-{{ category_class(ev.category) }}" style="--actual-ratio: {{ visual.ratio }}%; {{ event_color_style(ev.custom_color) }}"><span class="event-actual-fill" aria-hidden="true"></span><span class="event-content">{{ ev.title }}</span></span>
                 {% endif %}
               {% endfor %}
 
