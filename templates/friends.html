@@ -2,7 +2,7 @@
 {% block title %}フレンド管理 - タイムラインカレンダー{% endblock %}
 {% block content %}
 <div class="friends-page">
-  <div class="friends-heading"><h1>フレンド管理</h1><p>フレンドの公開中の進捗を確認できます</p></div>
+  <div class="friends-heading"><h1>フレンド管理</h1></div>
 
   <section class="friend-card" aria-labelledby="friends-list-title">
     <h2 id="friends-list-title" class="friend-card-title friend-list-heading">フレンド一覧 <span class="friend-count">{{ friends|length }}</span></h2>
@@ -10,25 +10,7 @@
       <div class="friend-list">
       {% for friend in friends %}
         <div class="friend-row friend-overview-row">
-          <div class="friend-overview-main">
-            <div class="friend-person"><span class="friend-avatar friend-avatar-blue">{{ friend.display_name[0] }}</span><div class="friend-person-copy"><strong>{{ friend.display_name }}</strong><span>公開中の進捗</span></div></div>
-            {% if friend.progress %}
-              <div class="friend-progress-grid" aria-label="{{ friend.display_name }}さんの進捗">
-                {% for period, label in [('week', '今週'), ('month', '今月')] %}
-                  {% if friend.progress[period] %}
-                    {% set info = friend.progress[period] %}
-                    <div class="friend-progress-card">
-                      <div class="friend-progress-card-head"><span>{{ label }}</span><strong>{{ info.achievement_rate }}%</strong></div>
-                      <div class="friend-progress-mini-track" aria-hidden="true"><span class="{{ 'is-complete' if info.achievement_rate >= 100 else '' }}" style="width: {{ [info.achievement_rate, 100]|min }}%;"></span></div>
-                      <small><span>費やした時間</span><strong>{{ info.total_minutes // 60 }}時間{{ info.total_minutes % 60 }}分</strong></small>
-                    </div>
-                  {% endif %}
-                {% endfor %}
-              </div>
-            {% else %}
-              <p class="friend-progress-private">進捗は公開されていません</p>
-            {% endif %}
-          </div>
+          <div class="friend-person"><span class="friend-avatar friend-avatar-blue">{{ friend.display_name[0] }}</span><div class="friend-person-copy"><strong>{{ friend.display_name }}</strong></div></div>
           <div class="friend-actions friend-list-actions">
             <a class="friend-action-button friend-accept-button" href="{{ url_for('friend_progress_goals_view', user_id=friend.user_id) }}">進捗を見る</a>
             <form method="post" action="{{ url_for('friends_remove', friendship_id=friend.friendship_id) }}" onsubmit="return confirm('フレンドを解除しますか？');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="friend-action-button friend-negative-button">解除</button></form>

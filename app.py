@@ -907,8 +907,6 @@ def notifications_view():
 @login_required
 def friends_view():
     friends = db.get_friends(g.user["id"])
-    for f in friends:
-        f["progress"] = db.get_friend_public_progress(f["user_id"])
     return render_template(
         "friends.html",
         friends=friends,
