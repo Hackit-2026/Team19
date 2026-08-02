@@ -1,6 +1,7 @@
 import os
 from datetime import datetime
 import re
+import sqlite3
 import subprocess
 import sys
 from pathlib import Path
@@ -223,7 +224,7 @@ def test_friends_page_shows_public_progress_and_spent_time(client):
 
     status, _ = db.send_friend_request(
         viewer_id,
-        "friend@example.com",
+        db.get_user_by_id(friend_id)["friend_code"],
     )
     assert status == "ok"
 
@@ -450,7 +451,7 @@ def test_named_progress_goal_owner_and_public_access(client, app):
 
     db.send_friend_request(
         owner,
-        "friend-progress@example.com",
+        db.get_user_by_id(friend)["friend_code"],
     )
 
     friendship_id = db.get_received_requests(friend)[0]["friendship_id"]
@@ -503,7 +504,7 @@ def test_new_event_query_prefill_and_invalid_values(client, app):
 def test_calendar_direct_add_links_respect_owner_only(client, app):
     owner = db.create_user("Owner", "calendar-owner@example.com", "password", email_verified=True)
     friend = db.create_user("Friend", "calendar-friend@example.com", "password", email_verified=True)
-    db.send_friend_request(owner, "calendar-friend@example.com")
+    db.send_friend_request(owner, db.get_user_by_id(friend)["friend_code"])
     friendship_id = db.get_received_requests(friend)[0]["friendship_id"]
     db.respond_to_request(friendship_id, friend, accept=True)
 
@@ -548,7 +549,7 @@ def test_event_color_form_uses_preset_radios(client, app):
 def test_friends_page_shows_progress_without_calendar_link(client, app):
     user_id = db.create_user("Owner", "friend-owner@example.com", "password", email_verified=True)
     friend_id = db.create_user("Friend", "friend-progress@example.com", "password", email_verified=True)
-    db.send_friend_request(user_id, "friend-progress@example.com")
+    db.send_friend_request(user_id, db.get_user_by_id(friend_id)["friend_code"])
     friendship_id = db.get_received_requests(friend_id)[0]["friendship_id"]
     db.respond_to_request(friendship_id, friend_id, accept=True)
     with client.session_transaction() as session:
@@ -575,10 +576,89 @@ def test_friend_request_is_managed_from_notifications(client, app):
     with client.session_transaction() as session:
         session["user_id"] = requester
     token = csrf_token(client.get("/friends"))
-    client.post("/friends/request", data={"email": "recipient@example.com", "csrf_token": token})
+    recipient_code = db.get_user_by_id(recipient)["friend_code"]
+    client.post("/friends/request", data={"friend_code": recipient_code, "csrf_token": token})
     with client.session_transaction() as session:
         session["user_id"] = recipient
     notifications = client.get("/notifications").get_data(as_text=True)
     assert "フレンド申請" in notifications
     assert "承認" in notifications and "拒否" in notifications
     assert "受信した申請" not in client.get("/friends").get_data(as_text=True)
+
+
+def test_users_receive_unique_eight_character_friend_codes(app):
+    first_id = db.create_user("First", "first-code@example.com", "password")
+    second_id = db.create_user("Second", "second-code@example.com", "password")
+
+    first_code = db.get_user_by_id(first_id)["friend_code"]
+    second_code = db.get_user_by_id(second_id)["friend_code"]
+
+    assert re.fullmatch(r"[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}", first_code)
+    assert re.fullmatch(r"[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}", second_code)
+    assert first_code != second_code
+    assert db.get_user_by_friend_code(first_code.lower())["id"] == first_id
+
+
+def test_mypage_shows_name_and_friend_code(client, app):
+    user_id = db.create_user("マイページ利用者", "mypage@example.com", "password", email_verified=True)
+    user = db.get_user_by_id(user_id)
+    with client.session_transaction() as session:
+        session["user_id"] = user_id
+
+    response = client.get("/mypage")
+    body = response.get_data(as_text=True)
+
+    assert response.status_code == 200
+    assert "マイページ利用者" in body
+    assert user["friend_code"] in body
+    assert "mypage@example.com" not in body
+
+
+def test_friend_request_uses_friend_code_instead_of_email(client, app):
+    requester_id = db.create_user("Requester", "code-requester@example.com", "password", email_verified=True)
+    recipient_id = db.create_user("Recipient", "code-recipient@example.com", "password", email_verified=True)
+    recipient = db.get_user_by_id(recipient_id)
+    with client.session_transaction() as session:
+        session["user_id"] = requester_id
+
+    page = client.get("/friends")
+    body = page.get_data(as_text=True)
+    assert 'name="friend_code"' in body
+    assert 'name="email"' not in body
+
+    response = client.post(
+        "/friends/request",
+        data={
+            "friend_code": recipient["friend_code"].lower(),
+            "csrf_token": csrf_token(page),
+        },
+    )
+
+    assert response.status_code == 302
+    requests = db.get_received_requests(recipient_id)
+    assert len(requests) == 1
+    assert requests[0]["user_id"] == requester_id
+
+
+def test_existing_users_receive_friend_codes_during_migration(tmp_path, monkeypatch):
+    legacy_db = tmp_path / "legacy.db"
+    conn = sqlite3.connect(legacy_db)
+    conn.execute(
+        "CREATE TABLE users ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, display_name TEXT NOT NULL, "
+        "email TEXT NOT NULL UNIQUE, password_hash TEXT NOT NULL, "
+        "email_verified BOOLEAN NOT NULL DEFAULT 1, created_at TEXT NOT NULL)"
+    )
+    conn.execute(
+        "INSERT INTO users (display_name, email, password_hash, email_verified, created_at) "
+        "VALUES (?, ?, ?, ?, ?)",
+        ("Legacy", "legacy@example.com", "unused", 1, "2026-08-01 00:00:00"),
+    )
+    conn.commit()
+    conn.close()
+
+    monkeypatch.setattr(db, "DB_PATH", str(legacy_db))
+    db.init_db()
+
+    migrated = db.get_user_by_email("legacy@example.com")
+    assert re.fullmatch(r"[23456789ABCDEFGHJKLMNPQRSTUVWXYZ]{8}", migrated["friend_code"])

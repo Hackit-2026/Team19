@@ -19,7 +19,7 @@
     <a href="{{ url_for('notifications_view') }}" class="{{ 'active' if request.endpoint == 'notifications_view' else '' }}">通知{% if unread_notifications %}<span class="nav-badge">{{ unread_notifications }}</span>{% endif %}</a>
   </nav>
   <div class="user-area">
-    <a href="{{ url_for('account_settings') }}" class="user-name-link">{{ g.user.display_name }}</a>
+    <a href="{{ url_for('mypage') }}" class="user-name-link">{{ g.user.display_name }}</a>
     <form method="post" action="{{ url_for('logout') }}" style="display:inline;">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-sm">ログアウト</button>

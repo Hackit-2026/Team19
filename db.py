@@ -18,6 +18,7 @@ import secrets
 import sqlite3
 from datetime import datetime, timedelta
 
+from nanoid import generate
 from werkzeug.security import generate_password_hash, check_password_hash
 
 DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo.db")
@@ -33,6 +34,8 @@ EVENT_COLOR_OPTIONS = {
 
 EMAIL_VERIFICATION_TTL_HOURS = 24
 PASSWORD_RESET_TTL_MINUTES = 60
+FRIEND_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+FRIEND_CODE_LENGTH = 8
 
 
 def now_str():
@@ -74,6 +77,7 @@ def init_db(reset=False):
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             display_name TEXT NOT NULL,
             email TEXT NOT NULL UNIQUE,
+            friend_code TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             email_verified BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
@@ -188,6 +192,18 @@ def init_db(reset=False):
     _ensure_column(conn, "events", "visibility", "TEXT NOT NULL DEFAULT 'public'")
     _ensure_column(conn, "events", "custom_color", "TEXT")
     _ensure_column(conn, "goals", "manual_rate", "INTEGER")
+    _ensure_column(conn, "users", "friend_code", "TEXT")
+    users_without_code = conn.execute(
+        "SELECT id FROM users WHERE friend_code IS NULL OR friend_code = ''"
+    ).fetchall()
+    for user in users_without_code:
+        conn.execute(
+            "UPDATE users SET friend_code = ? WHERE id = ?",
+            (_generate_unique_friend_code(conn), user["id"]),
+        )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_friend_code ON users(friend_code)"
+    )
     conn.commit()
     conn.close()
 
@@ -196,13 +212,25 @@ def init_db(reset=False):
 # users
 # ---------------------------------------------------------------------------
 
+def _generate_unique_friend_code(conn):
+    """Nano IDで8文字の、DB内で重複しないフレンドコードを生成する。"""
+    for _ in range(20):
+        code = generate(FRIEND_CODE_ALPHABET, FRIEND_CODE_LENGTH)
+        exists = conn.execute(
+            "SELECT 1 FROM users WHERE friend_code = ?", (code,)
+        ).fetchone()
+        if exists is None:
+            return code
+    raise RuntimeError("failed to generate a unique friend code")
+
 def create_user(display_name, email, password, email_verified=True):
     conn = get_connection()
     try:
+        friend_code = _generate_unique_friend_code(conn)
         cur = conn.execute(
-            "INSERT INTO users (display_name, email, password_hash, email_verified, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (display_name, email.strip().lower(), generate_password_hash(password), 1 if email_verified else 0, now_str()),
+            "INSERT INTO users (display_name, email, friend_code, password_hash, email_verified, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (display_name, email.strip().lower(), friend_code, generate_password_hash(password), 1 if email_verified else 0, now_str()),
         )
         conn.commit()
         return cur.lastrowid
@@ -216,6 +244,18 @@ def get_user_by_email(email):
     conn = get_connection()
     try:
         row = conn.execute("SELECT * FROM users WHERE email = ?", (email.strip().lower(),)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_user_by_friend_code(friend_code):
+    conn = get_connection()
+    try:
+        normalized = str(friend_code or "").strip().upper()
+        row = conn.execute(
+            "SELECT * FROM users WHERE friend_code = ?", (normalized,)
+        ).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -895,8 +935,8 @@ def mark_notifications_read(user_id):
 # friendships
 # ---------------------------------------------------------------------------
 
-def send_friend_request(requester_id, addressee_email):
-    addressee = get_user_by_email(addressee_email)
+def send_friend_request(requester_id, friend_code):
+    addressee = get_user_by_friend_code(friend_code)
     if addressee is None:
         return "not_found", None
     if addressee["id"] == requester_id:

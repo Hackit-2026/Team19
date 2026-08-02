@@ -603,6 +603,13 @@ table.month-grid td.today .date-num { font-weight: bold; color: #333; }
   font-weight: 800 !important;
 }
 
+.friend-code {
+  color: #101828;
+  font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+  font-size: clamp(24px, 6vw, 36px);
+  letter-spacing: .18em;
+}
+
 @media (max-width: 600px) {
   .friends-page { padding-bottom: 32px; }
   .friends-heading { margin-bottom: 18px; }

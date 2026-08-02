@@ -300,6 +300,12 @@ def account_settings():
     return render_template("account.html")
 
 
+@app.route("/mypage")
+@login_required
+def mypage():
+    return render_template("mypage.html")
+
+
 # ---------------------------------------------------------------------------
 # 開発用メールボックス(実SMTPの代わり)
 # ---------------------------------------------------------------------------
@@ -848,12 +854,12 @@ def friends_view():
 @app.route("/friends/request", methods=["POST"])
 @login_required
 def friends_request():
-    email = request.form.get("email", "").strip()
-    if not email:
-        flash("メールアドレスを入力してください", "error")
+    friend_code = request.form.get("friend_code", "").strip().upper()
+    if len(friend_code) != db.FRIEND_CODE_LENGTH:
+        flash("8桁のフレンドコードを入力してください", "error")
         return redirect(url_for("friends_view"))
 
-    result, addressee = db.send_friend_request(g.user["id"], email)
+    result, addressee = db.send_friend_request(g.user["id"], friend_code)
     messages = {
         "ok": ("申請を送りました", "info"),
         "not_found": ("該当するユーザーが見つかりません", "error"),

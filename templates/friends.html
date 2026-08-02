@@ -10,7 +10,25 @@
       <div class="friend-list">
       {% for friend in friends %}
         <div class="friend-row friend-overview-row">
-          <div class="friend-person"><span class="friend-avatar friend-avatar-blue">{{ friend.display_name[0] }}</span><div class="friend-person-copy"><strong>{{ friend.display_name }}</strong><span>フレンド</span></div></div>
+          <div class="friend-overview-main">
+            <div class="friend-person"><span class="friend-avatar friend-avatar-blue">{{ friend.display_name[0] }}</span><div class="friend-person-copy"><strong>{{ friend.display_name }}</strong><span>公開中の進捗</span></div></div>
+            {% if friend.progress %}
+              <div class="friend-progress-grid" aria-label="{{ friend.display_name }}さんの進捗">
+                {% for period, label in [('week', '今週'), ('month', '今月')] %}
+                  {% if friend.progress[period] %}
+                    {% set info = friend.progress[period] %}
+                    <div class="friend-progress-card">
+                      <div class="friend-progress-card-head"><span>{{ label }}</span><strong>{{ info.achievement_rate }}%</strong></div>
+                      <div class="friend-progress-mini-track" aria-hidden="true"><span class="{{ 'is-complete' if info.achievement_rate >= 100 else '' }}" style="width: {{ [info.achievement_rate, 100]|min }}%;"></span></div>
+                      <small><span>費やした時間</span><strong>{{ info.total_minutes // 60 }}時間{{ info.total_minutes % 60 }}分</strong></small>
+                    </div>
+                  {% endif %}
+                {% endfor %}
+              </div>
+            {% else %}
+              <p class="friend-progress-private">進捗は公開されていません</p>
+            {% endif %}
+          </div>
           <div class="friend-actions friend-list-actions">
             <a class="friend-action-button friend-accept-button" href="{{ url_for('friend_progress_goals_view', user_id=friend.user_id) }}">進捗を見る</a>
             <form method="post" action="{{ url_for('friends_remove', friendship_id=friend.friendship_id) }}" onsubmit="return confirm('フレンドを解除しますか？');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="friend-action-button friend-negative-button">解除</button></form>
@@ -19,7 +37,7 @@
       {% endfor %}
       </div>
     {% else %}
-      <p class="friend-empty">フレンドはまだいません</p><p class="friend-empty">下のフォームからメールアドレスを入力して追加できます。</p>
+      <p class="friend-empty">フレンドはまだいません</p><p class="friend-empty">下のフォームから8桁のフレンドコードを入力して追加できます。</p>
     {% endif %}
   </section>
 
@@ -27,7 +45,7 @@
     <h2 id="friend-add-title" class="friend-card-title">フレンドを追加</h2>
     <form method="post" action="{{ url_for('friends_request') }}" class="friend-add-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div class="friend-search-wrap"><span class="friend-search-icon" aria-hidden="true">⌕</span><label class="visually-hidden" for="friend-email">メールアドレスで検索</label><input id="friend-email" class="friend-search-input" type="email" name="email" placeholder="メールアドレスで検索" required></div>
+      <div class="friend-search-wrap"><span class="friend-search-icon" aria-hidden="true">⌕</span><label class="visually-hidden" for="friend-code">フレンドコードで検索</label><input id="friend-code" class="friend-search-input" type="text" name="friend_code" placeholder="8桁のフレンドコード" minlength="8" maxlength="8" autocomplete="off" autocapitalize="characters" required></div>
       <button type="submit" class="friend-primary-button friend-send-button">申請を送る</button>
     </form>
   </section>
