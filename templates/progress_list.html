@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}名前付き目標 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='progress.css') }}">
+<div class="named-goals-page">
+  <header class="named-goals-header"><div><h1>名前付き目標</h1><p>作業の区切りごとに、進捗を自分で更新できます。</p></div><a class="btn btn-primary" href="{{ url_for('progress_goal_new') }}">＋ 目標を追加</a></header>
+  {% if goals %}
+  <div class="named-goal-grid">
+    {% for goal in goals %}
+    <a class="named-goal-card {{ 'is-complete' if goal.progress_rate >= 100 else '' }}" href="{{ url_for('progress_goal_detail', goal_id=goal.id) }}">
+      <div class="named-goal-card-head"><h2>{{ goal.title }}</h2><strong>{{ goal.progress_rate }}%</strong></div>
+      <div class="named-progress-bar" aria-label="進捗 {{ goal.progress_rate }}%"><span style="width: {{ goal.progress_rate }}%"></span></div>
+      <div class="named-goal-meta"><span>{{ '達成済み' if goal.progress_rate >= 100 else '進行中' }}</span><span>{{ '公開' if goal.is_public else '非公開' }}{% if goal.deadline %} ・期限 {{ goal.deadline }}{% endif %}</span></div>
+      <small>最終更新 {{ goal.updated_at }}</small>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="named-goals-empty"><p>名前付き目標はまだありません。</p><a class="btn btn-primary" href="{{ url_for('progress_goal_new') }}">最初の目標を追加</a></div>
+  {% endif %}
+</div>
+{% endblock %}

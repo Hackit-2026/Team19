@@ -1,0 +1,7 @@
+{% extends "base.html" %}
+{% block title %}{{ friend.display_name }}さんの進捗 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='progress.css') }}">
+<div class="named-goals-page"><header class="named-goals-header"><div><h1>{{ friend.display_name }}さんの進捗</h1><p>公開されている目標のみ表示しています。</p></div><a class="btn" href="{{ url_for('friends_view') }}">フレンド一覧へ</a></header>
+{% if goals %}<div class="named-goal-grid">{% for goal in goals %}<section class="named-goal-card {{ 'is-complete' if goal.progress_rate >= 100 else '' }}"><div class="named-goal-card-head"><h2>{{ goal.title }}</h2><strong>{{ goal.progress_rate }}%</strong></div><div class="named-progress-bar"><span style="width: {{ goal.progress_rate }}%"></span></div><div class="named-goal-meta"><span>{{ '達成済み' if goal.progress_rate >= 100 else '進行中' }}</span><span>{% if goal.deadline %}期限 {{ goal.deadline }}{% endif %}</span></div><small>最終更新 {{ goal.updated_at }}</small></section>{% endfor %}</div>{% else %}<div class="named-goals-empty">公開されている目標はありません。</div>{% endif %}</div>
+{% endblock %}

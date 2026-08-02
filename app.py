@@ -599,7 +599,6 @@ def timer_stopped(event_id):
 # ---------------------------------------------------------------------------
 
 @app.route("/goals", methods=["GET", "POST"])
-@app.route("/progress", methods=["GET", "POST"])
 @login_required
 def goals_view():
     if request.method == "POST":
@@ -631,6 +630,122 @@ def goals_delete(period):
         db.delete_goal(g.user["id"], period)
         flash("目標を削除しました", "info")
     return redirect(url_for("goals_view"))
+
+
+# ---------------------------------------------------------------------------
+# 名前付き目標の進捗
+# ---------------------------------------------------------------------------
+
+def _parse_progress_goal_form(form):
+    title = form.get("title", "").strip()
+    description = form.get("description", "").strip()
+    deadline = form.get("deadline", "").strip()
+    is_public = form.get("is_public") == "1"
+    errors = []
+    if not title:
+        errors.append("目標名を入力してください")
+    if deadline:
+        try:
+            date.fromisoformat(deadline)
+        except ValueError:
+            errors.append("期限は正しい日付で入力してください")
+    return title, description, deadline or None, is_public, errors
+
+
+@app.route("/progress")
+@login_required
+def progress_goals_view():
+    return render_template("progress_list.html", goals=db.get_progress_goals(g.user["id"]))
+
+
+@app.route("/progress/new", methods=["GET", "POST"])
+@login_required
+def progress_goal_new():
+    if request.method == "POST":
+        title, description, deadline, is_public, errors = _parse_progress_goal_form(request.form)
+        try:
+            rate = int(request.form.get("progress_rate", "0"))
+            if not 0 <= rate <= 100:
+                raise ValueError
+        except ValueError:
+            errors.append("初期進捗は0〜100の整数で入力してください")
+            rate = 0
+        if errors:
+            for error in errors:
+                flash(error, "error")
+            return render_template("progress_form.html", mode="new", form=request.form, goal_id=None)
+        goal_id = db.create_progress_goal(g.user["id"], title, description, rate, deadline, is_public)
+        flash("目標を登録しました", "info")
+        return redirect(url_for("progress_goal_detail", goal_id=goal_id))
+    return render_template("progress_form.html", mode="new", form={"title": "", "description": "", "deadline": "", "progress_rate": 0, "is_public": False}, goal_id=None)
+
+
+@app.route("/progress/<int:goal_id>")
+@login_required
+def progress_goal_detail(goal_id):
+    goal = db.get_progress_goal(goal_id, g.user["id"])
+    if goal is None:
+        flash("目標が見つかりません", "error")
+        return redirect(url_for("progress_goals_view"))
+    return render_template("progress_detail.html", goal=goal, updates=db.get_progress_updates(goal_id, g.user["id"]))
+
+
+@app.route("/progress/<int:goal_id>/update", methods=["POST"])
+@login_required
+def progress_goal_update_rate(goal_id):
+    try:
+        rate = int(request.form.get("progress_rate", ""))
+        if not 0 <= rate <= 100:
+            raise ValueError
+    except ValueError:
+        flash("進捗は0〜100の整数で入力してください", "error")
+        return redirect(url_for("progress_goal_detail", goal_id=goal_id))
+    if not db.update_progress_rate(goal_id, g.user["id"], rate, request.form.get("note", "").strip()):
+        flash("目標が見つかりません", "error")
+        return redirect(url_for("progress_goals_view"))
+    flash("進捗を登録しました", "info")
+    return redirect(url_for("progress_goal_detail", goal_id=goal_id))
+
+
+@app.route("/progress/<int:goal_id>/edit", methods=["GET", "POST"])
+@login_required
+def progress_goal_edit(goal_id):
+    goal = db.get_progress_goal(goal_id, g.user["id"])
+    if goal is None:
+        flash("目標が見つかりません", "error")
+        return redirect(url_for("progress_goals_view"))
+    if request.method == "POST":
+        title, description, deadline, is_public, errors = _parse_progress_goal_form(request.form)
+        if errors:
+            for error in errors:
+                flash(error, "error")
+            return render_template("progress_form.html", mode="edit", form=request.form, goal_id=goal_id)
+        db.update_progress_goal(goal_id, g.user["id"], title, description, deadline, is_public)
+        flash("目標を更新しました", "info")
+        return redirect(url_for("progress_goal_detail", goal_id=goal_id))
+    return render_template("progress_form.html", mode="edit", form=goal, goal_id=goal_id)
+
+
+@app.route("/progress/<int:goal_id>/delete", methods=["POST"])
+@login_required
+def progress_goal_delete(goal_id):
+    if db.delete_progress_goal(goal_id, g.user["id"]):
+        flash("目標を削除しました", "info")
+    else:
+        flash("目標が見つかりません", "error")
+    return redirect(url_for("progress_goals_view"))
+
+
+@app.route("/progress/friend/<int:user_id>")
+@login_required
+def friend_progress_goals_view(user_id):
+    if user_id == g.user["id"]:
+        return redirect(url_for("progress_goals_view"))
+    friend = db.get_user_by_id(user_id)
+    if friend is None or not db.are_friends(g.user["id"], user_id):
+        flash("フレンドの公開目標のみ閲覧できます", "error")
+        return redirect(url_for("friends_view"))
+    return render_template("friend_progress.html", friend=friend, goals=db.get_public_progress_goals(user_id))
 
 
 # ---------------------------------------------------------------------------

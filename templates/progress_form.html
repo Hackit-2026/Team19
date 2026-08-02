@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}{{ '目標を編集' if mode == 'edit' else '目標を追加' }} - タイムラインカレンダー{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='progress.css') }}">
+<div class="named-goal-form-page"><h1>{{ '目標を編集' if mode == 'edit' else '目標を追加' }}</h1>
+  <form method="post" class="named-goal-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <label>目標名<input name="title" value="{{ form.title }}" required></label>
+    <label>詳細<textarea name="description" rows="4">{{ form.description or '' }}</textarea></label>
+    <label>期限<input type="date" name="deadline" value="{{ form.deadline or '' }}"></label>
+    {% if mode == 'new' %}<label>初期進捗<input type="number" name="progress_rate" min="0" max="100" value="{{ form.progress_rate }}" required></label>{% endif %}
+    <label class="named-public-toggle"><input type="checkbox" name="is_public" value="1" {{ 'checked' if form.is_public else '' }}> フレンドに公開する</label>
+    <div class="named-form-actions"><button class="btn btn-primary" type="submit">{{ '更新する' if mode == 'edit' else '登録する' }}</button><a class="btn" href="{{ url_for('progress_goal_detail', goal_id=goal_id) if goal_id else url_for('progress_goals_view') }}">キャンセル</a></div>
+  </form>
+</div>
+{% endblock %}

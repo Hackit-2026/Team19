@@ -135,6 +135,31 @@ def init_db(reset=False):
             UNIQUE (user_id, period)
         );
 
+        CREATE TABLE IF NOT EXISTS progress_goals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            description TEXT,
+            progress_rate INTEGER NOT NULL DEFAULT 0 CHECK (progress_rate BETWEEN 0 AND 100),
+            deadline TEXT,
+            is_public BOOLEAN NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_progress_goals_user ON progress_goals(user_id);
+
+        CREATE TABLE IF NOT EXISTS progress_updates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            goal_id INTEGER NOT NULL REFERENCES progress_goals(id) ON DELETE CASCADE,
+            previous_rate INTEGER NOT NULL,
+            new_rate INTEGER NOT NULL,
+            note TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_progress_updates_goal ON progress_updates(goal_id, created_at);
+
         CREATE TABLE IF NOT EXISTS feed_reads (
             user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
             last_read_at TEXT NOT NULL
@@ -685,6 +710,136 @@ def get_friend_public_progress(user_id):
                 "achievement_rate": info["achievement_rate"],
             }
     return public
+
+
+# ---------------------------------------------------------------------------
+# named progress goals (名前付き目標)
+# ---------------------------------------------------------------------------
+
+def create_progress_goal(user_id, title, description="", progress_rate=0, deadline=None, is_public=False):
+    if not 0 <= int(progress_rate) <= 100:
+        raise ValueError("progress_rate must be between 0 and 100")
+    conn = get_connection()
+    try:
+        ts = now_str()
+        cur = conn.execute(
+            "INSERT INTO progress_goals (user_id, title, description, progress_rate, deadline, is_public, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, title, description or None, int(progress_rate), deadline, 1 if is_public else 0, ts, ts),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_progress_goal(goal_id, user_id=None):
+    conn = get_connection()
+    try:
+        sql = "SELECT * FROM progress_goals WHERE id = ?"
+        params = [goal_id]
+        if user_id is not None:
+            sql += " AND user_id = ?"
+            params.append(user_id)
+        row = conn.execute(sql, params).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_progress_goals(user_id):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM progress_goals WHERE user_id = ? "
+            "ORDER BY CASE WHEN progress_rate >= 100 THEN 1 ELSE 0 END, updated_at DESC, id DESC",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def get_public_progress_goals(user_id):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT id, user_id, title, progress_rate, deadline, updated_at "
+            "FROM progress_goals WHERE user_id = ? AND is_public = 1 "
+            "ORDER BY CASE WHEN progress_rate >= 100 THEN 1 ELSE 0 END, updated_at DESC, id DESC",
+            (user_id,),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def update_progress_goal(goal_id, user_id, title, description, deadline, is_public):
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE progress_goals SET title = ?, description = ?, deadline = ?, is_public = ?, updated_at = ? "
+            "WHERE id = ? AND user_id = ?",
+            (title, description or None, deadline, 1 if is_public else 0, now_str(), goal_id, user_id),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def update_progress_rate(goal_id, user_id, new_rate, note=""):
+    if not 0 <= int(new_rate) <= 100:
+        raise ValueError("progress_rate must be between 0 and 100")
+    conn = get_connection()
+    try:
+        goal = conn.execute(
+            "SELECT progress_rate FROM progress_goals WHERE id = ? AND user_id = ?", (goal_id, user_id)
+        ).fetchone()
+        if goal is None:
+            return False
+        new_rate = int(new_rate)
+        if goal["progress_rate"] == new_rate:
+            return True
+        ts = now_str()
+        conn.execute(
+            "UPDATE progress_goals SET progress_rate = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            (new_rate, ts, goal_id, user_id),
+        )
+        conn.execute(
+            "INSERT INTO progress_updates (goal_id, previous_rate, new_rate, note, created_at) VALUES (?, ?, ?, ?, ?)",
+            (goal_id, goal["progress_rate"], new_rate, note or None, ts),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def get_progress_updates(goal_id, user_id):
+    conn = get_connection()
+    try:
+        owner = conn.execute(
+            "SELECT 1 FROM progress_goals WHERE id = ? AND user_id = ?", (goal_id, user_id)
+        ).fetchone()
+        if owner is None:
+            return []
+        rows = conn.execute(
+            "SELECT * FROM progress_updates WHERE goal_id = ? ORDER BY created_at DESC, id DESC", (goal_id,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def delete_progress_goal(goal_id, user_id):
+    conn = get_connection()
+    try:
+        cur = conn.execute("DELETE FROM progress_goals WHERE id = ? AND user_id = ?", (goal_id, user_id))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
 
 
 # ---------------------------------------------------------------------------
