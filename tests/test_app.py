@@ -148,3 +148,32 @@ def test_progress_page_accepts_manual_rate(client):
 
     assert response.status_code == 302
     assert db.get_goal(user_id, "month")["manual_rate"] == 125
+
+
+def test_friends_page_shows_public_progress_and_spent_time(client):
+    viewer_id = db.create_user("Viewer", "viewer@example.com", "password", email_verified=True)
+    friend_id = db.create_user("Friend", "friend@example.com", "password", email_verified=True)
+    status, _ = db.send_friend_request(viewer_id, "friend@example.com")
+    assert status == "ok"
+    request_item = db.get_received_requests(friend_id)[0]
+    accepted, _ = db.respond_to_request(request_item["friendship_id"], friend_id, accept=True)
+    assert accepted is True
+    db.set_progress(friend_id, "week", 67, True)
+
+    now = __import__("datetime").datetime.now()
+    start = now.replace(hour=9, minute=0, second=0, microsecond=0)
+    db.add_event(friend_id, "Shared work", start, start + __import__("datetime").timedelta(minutes=90))
+
+    token = csrf_token(client.get("/login"))
+    client.post(
+        "/login",
+        data={"email": "viewer@example.com", "password": "password", "csrf_token": token},
+    )
+
+    page = client.get("/friends")
+    body = page.get_data(as_text=True)
+    assert page.status_code == 200
+    assert "公開中の進捗" in body
+    assert "67%" in body
+    assert "費やした時間" in body
+    assert "1時間30分" in body
