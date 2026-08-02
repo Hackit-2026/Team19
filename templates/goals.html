@@ -1,53 +1,88 @@
 {% extends "base.html" %}
-{% block title %}目標・進捗 - タイムラインカレンダー{% endblock %}
+{% block title %}進捗 - タイムラインカレンダー{% endblock %}
 {% block content %}
-<div class="form-window wide">
-  <h1>目標・進捗</h1>
-  <p class="empty-note">今日の合計記録時間: <strong>{{ (progress.today_minutes // 60) }}時間{{ (progress.today_minutes % 60) }}分</strong></p>
+<div class="progress-page">
+  <header class="progress-heading">
+    <h1>進捗</h1>
+    <p>達成率と、実際にかけた時間をまとめて確認できます</p>
+  </header>
 
-  {% for period, label in [('week', '週'), ('month', '月')] %}
-    {% set info = progress[period] %}
-    <div class="section-title">{{ label }}の目標</div>
-    <div class="list-row" style="flex-direction:column; align-items:stretch; gap:8px;">
-      <div style="display:flex; justify-content:space-between; align-items:center;">
-        <span>
-          今{{ label }}の合計: <strong>{{ (info.total_minutes // 60) }}時間{{ (info.total_minutes % 60) }}分</strong>
-          {% if info.target_minutes %}
-            / 目標 {{ (info.target_minutes // 60) }}時間{{ (info.target_minutes % 60) }}分
-            (達成率 {{ info.achievement_rate }}%)
-          {% else %}
-            (目標未設定)
-          {% endif %}
-        </span>
-      </div>
-      {% if info.target_minutes %}
-      <div style="background:#eee; border-radius:4px; height:10px; overflow:hidden;">
-        <div style="background: {{ '#2E7D46' if info.achievement_rate >= 100 else 'var(--accent)' }}; height:100%; width:{{ [info.achievement_rate, 100]|min }}%;"></div>
-      </div>
-      {% endif %}
+  <section class="progress-today-card">
+    <span>今日かけた時間</span>
+    <strong>{{ (progress.today_minutes // 60) }}<small>時間</small>{{ (progress.today_minutes % 60) }}<small>分</small></strong>
+  </section>
 
-      <form method="post" action="{{ url_for('goals_view') }}" class="row" style="margin-top:6px;">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <input type="hidden" name="period" value="{{ period }}">
-        <div>
-          <div class="field-label">目標時間(時間/{{ label }})</div>
-          <input class="field small" type="number" name="target_hours" min="0.5" step="0.5"
-                 value="{{ (info.target_minutes / 60) if info.target_minutes else '' }}" style="width:100px;" required>
+  <div class="progress-grid">
+    {% for period, label in [('week', '今週'), ('month', '今月')] %}
+      {% set info = progress[period] %}
+      {% set rate = info.achievement_rate if info.achievement_rate is not none else 0 %}
+      <section class="progress-card">
+        <div class="progress-card-head">
+          <div>
+            <span class="progress-period">{{ label }}の進捗</span>
+            <div class="progress-rate"><strong id="rate-display-{{ period }}">{{ rate }}</strong><span>%</span></div>
+          </div>
+          <div class="progress-time">
+            <span>かけた時間</span>
+            <strong>{{ (info.total_minutes // 60) }}時間{{ (info.total_minutes % 60) }}分</strong>
+          </div>
         </div>
-        <label style="font-size:12.5px; display:flex; align-items:center; gap:4px; margin-bottom:9px;">
-          <input type="checkbox" name="is_public" value="1" {{ 'checked' if info.is_public else '' }}>
-          フレンドに達成率を公開する
-        </label>
-        <button type="submit" class="btn btn-primary btn-sm">保存</button>
-        {% if info.target_minutes %}
-        <button type="submit" formaction="{{ url_for('goals_delete', period=period) }}" class="btn btn-sm btn-warn">目標を削除</button>
-        {% endif %}
-      </form>
-    </div>
-  {% endfor %}
 
-  <div class="demo-note">
-    公開に設定した期間の達成率は、フレンド一覧画面やフレンドのカレンダー画面から確認できるようになります。
+        <div class="progress-track" aria-hidden="true">
+          <div id="rate-bar-{{ period }}" class="progress-track-fill {{ 'is-complete' if rate >= 100 else '' }}"
+               style="width:{{ [rate, 100]|min }}%;"></div>
+        </div>
+
+        <form method="post" action="{{ url_for('goals_view') }}" class="progress-form" data-progress-form="{{ period }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="period" value="{{ period }}">
+
+          <label class="progress-control-label" for="rate-{{ period }}">現在の達成率</label>
+          <div class="progress-rate-controls">
+            <input id="rate-range-{{ period }}" class="progress-range" type="range" min="0" max="200" step="1" value="{{ [rate, 200]|min }}">
+            <div class="progress-number-wrap">
+              <input id="rate-{{ period }}" class="progress-number" type="number" name="achievement_rate"
+                     min="0" max="999" step="1" value="{{ rate }}" required>
+              <span>%</span>
+            </div>
+          </div>
+
+          <div class="progress-form-footer">
+            <label class="progress-public-toggle">
+              <input type="checkbox" name="is_public" value="1" {{ 'checked' if info.is_public else '' }}>
+              <span>フレンドに公開</span>
+            </label>
+            <button type="submit" class="progress-save-button">進捗を保存</button>
+          </div>
+        </form>
+      </section>
+    {% endfor %}
   </div>
+
+  <p class="progress-note">かけた時間は、カレンダーの予定とタイマー記録から自動集計されます。</p>
 </div>
+
+<script>
+  (() => {
+    document.querySelectorAll("[data-progress-form]").forEach((form) => {
+      const period = form.dataset.progressForm;
+      const range = form.querySelector(".progress-range");
+      const number = form.querySelector(".progress-number");
+      const display = document.getElementById(`rate-display-${period}`);
+      const bar = document.getElementById(`rate-bar-${period}`);
+
+      function update(value) {
+        const rate = Math.max(0, Math.min(999, Number(value) || 0));
+        number.value = rate;
+        range.value = Math.min(rate, 200);
+        display.textContent = rate;
+        bar.style.width = `${Math.min(rate, 100)}%`;
+        bar.classList.toggle("is-complete", rate >= 100);
+      }
+
+      range.addEventListener("input", () => update(range.value));
+      number.addEventListener("input", () => update(number.value));
+    });
+  })();
+</script>
 {% endblock %}

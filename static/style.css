@@ -63,6 +63,72 @@ body {
   text-align: center;
 }
 
+/* 進捗画面: 手動達成率と自動集計時間を同じカードにまとめる。 */
+.progress-page { width: min(100%, 820px); margin: 0 auto; padding: 4px 0 56px; }
+.progress-heading { margin-bottom: 24px; }
+.progress-heading h1 { margin: 0 0 6px; color: #101828; font-size: 26px; }
+.progress-heading p { margin: 0; color: #98a2b3; font-size: 14px; font-weight: 600; }
+.progress-today-card {
+  display: flex; align-items: center; justify-content: space-between; gap: 20px;
+  margin-bottom: 18px; padding: 20px 24px; border-radius: 18px;
+  background: linear-gradient(135deg, #111827, #1f2937); color: #fff;
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.16);
+}
+.progress-today-card > span { color: #cbd5e1; font-size: 13px; font-weight: 700; }
+.progress-today-card strong { font-size: 28px; font-variant-numeric: tabular-nums; }
+.progress-today-card small { margin: 0 4px; font-size: 12px; font-weight: 600; }
+.progress-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.progress-card { padding: 24px; border: 1px solid #eef0f4; border-radius: 20px; background: #fff; box-shadow: 0 4px 12px rgba(15, 23, 42, 0.07); }
+.progress-card-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 18px; }
+.progress-period { color: #667085; font-size: 13px; font-weight: 800; }
+.progress-rate { display: flex; align-items: baseline; margin-top: 6px; color: #101828; line-height: 1; }
+.progress-rate strong { font-size: 52px; font-variant-numeric: tabular-nums; letter-spacing: -0.05em; }
+.progress-rate span { margin-left: 5px; color: #98a2b3; font-size: 20px; font-weight: 800; }
+.progress-time { display: grid; justify-items: end; gap: 5px; padding-top: 2px; text-align: right; }
+.progress-time span { color: #98a2b3; font-size: 11px; font-weight: 700; }
+.progress-time strong { color: #344054; font-size: 14px; white-space: nowrap; }
+.progress-track { height: 12px; margin: 20px 0 24px; overflow: hidden; border-radius: 999px; background: #eef1f5; }
+.progress-track-fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg, #60a5fa, #2563eb); transition: width 0.18s ease, background 0.18s ease; }
+.progress-track-fill.is-complete { background: linear-gradient(90deg, #4ade80, #16a34a); }
+.progress-form { padding-top: 20px; border-top: 1px solid #f0f1f3; }
+.progress-control-label { display: block; margin-bottom: 11px; color: #667085; font-size: 12px; font-weight: 800; }
+.progress-rate-controls { display: grid; grid-template-columns: minmax(0, 1fr) 92px; align-items: center; gap: 14px; }
+.progress-range { width: 100%; accent-color: #2563eb; cursor: pointer; }
+.progress-number-wrap { position: relative; }
+.progress-number { width: 100%; min-height: 44px; border: 1px solid #d0d5dd; border-radius: 10px; background: #f8fafc; padding: 0 30px 0 12px; color: #101828; font: inherit; font-size: 15px; font-weight: 800; }
+.progress-number:focus { border-color: #60a5fa; outline: 3px solid rgba(96, 165, 250, 0.18); background: #fff; }
+.progress-number-wrap > span { position: absolute; top: 50%; right: 12px; color: #98a2b3; font-size: 13px; font-weight: 800; transform: translateY(-50%); }
+.progress-form-footer { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; }
+.progress-public-toggle { display: flex; align-items: center; gap: 7px; color: #667085; font-size: 12px; font-weight: 700; cursor: pointer; }
+.progress-public-toggle input { accent-color: #2563eb; }
+.progress-save-button { min-height: 42px; border: 0; border-radius: 10px; background: #2563eb; padding: 9px 17px; color: #fff; font: inherit; font-size: 12px; font-weight: 800; cursor: pointer; box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2); }
+.progress-save-button:hover { background: #1d4ed8; }
+.progress-save-button:focus-visible { outline: 3px solid #bfdbfe; outline-offset: 2px; }
+.progress-note { margin: 20px 0 0; color: #98a2b3; font-size: 12px; text-align: center; }
+.progress-stop-summary { display: grid; gap: 10px; text-align: left; }
+.progress-stop-summary > div { display: grid; gap: 4px; padding: 14px; border-radius: 12px; background: #f8fafc; }
+.progress-stop-summary span { color: #667085; font-size: 12px; font-weight: 700; }
+.progress-stop-summary strong { color: #101828; font-size: 18px; }
+.progress-stop-summary small { color: #98a2b3; font-size: 11px; }
+
+@media (max-width: 760px) {
+  .progress-page { padding-bottom: 32px; }
+  .progress-grid { grid-template-columns: 1fr; }
+  .progress-card { padding: 20px; }
+}
+
+@media (max-width: 440px) {
+  .progress-heading h1 { font-size: 23px; }
+  .progress-today-card { padding: 18px; }
+  .progress-today-card strong { font-size: 23px; }
+  .progress-card-head { align-items: flex-end; }
+  .progress-rate strong { font-size: 46px; }
+  .progress-time strong { font-size: 12px; }
+  .progress-rate-controls { grid-template-columns: minmax(0, 1fr) 86px; }
+  .progress-form-footer { align-items: stretch; flex-direction: column; }
+  .progress-save-button { width: 100%; }
+}
+
 h1 { font-size: 17px; margin: 0 0 16px; }
 
 .field-label { font-size: 11.5px; color: #666; margin: 10px 0 3px; display: block; }

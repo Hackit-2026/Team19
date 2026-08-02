@@ -592,10 +592,11 @@ def timer_stopped(event_id):
 
 
 # ---------------------------------------------------------------------------
-# 目標・進捗
+# 進捗
 # ---------------------------------------------------------------------------
 
 @app.route("/goals", methods=["GET", "POST"])
+@app.route("/progress", methods=["GET", "POST"])
 @login_required
 def goals_view():
     if request.method == "POST":
@@ -603,17 +604,17 @@ def goals_view():
         if period not in ("week", "month"):
             flash("不正なリクエストです", "error")
             return redirect(url_for("goals_view"))
-        target_hours = request.form.get("target_hours", "").strip()
+        rate_value = request.form.get("achievement_rate", "").strip()
         is_public = request.form.get("is_public") == "1"
         try:
-            target_minutes = int(round(float(target_hours) * 60))
-            if target_minutes <= 0:
+            achievement_rate = int(rate_value)
+            if achievement_rate < 0 or achievement_rate > 999:
                 raise ValueError
         except ValueError:
-            flash("目標時間は正の数値で入力してください", "error")
+            flash("達成率は0〜999の整数で入力してください", "error")
             return redirect(url_for("goals_view"))
-        db.set_goal(g.user["id"], period, target_minutes, is_public)
-        flash(("週" if period == "week" else "月") + "の目標を保存しました", "info")
+        db.set_progress(g.user["id"], period, achievement_rate, is_public)
+        flash(("週" if period == "week" else "月") + "の進捗を保存しました", "info")
         return redirect(url_for("goals_view"))
 
     progress = db.compute_progress(g.user["id"])

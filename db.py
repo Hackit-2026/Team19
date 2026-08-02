@@ -128,6 +128,7 @@ def init_db(reset=False):
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             period TEXT NOT NULL CHECK (period IN ('week', 'month')),
             target_minutes INTEGER NOT NULL,
+            manual_rate INTEGER,
             is_public BOOLEAN NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
@@ -161,6 +162,7 @@ def init_db(reset=False):
     # 既存DBに対する後方互換マイグレーション(列追加)
     _ensure_column(conn, "events", "category", "TEXT")
     _ensure_column(conn, "events", "visibility", "TEXT NOT NULL DEFAULT 'public'")
+    _ensure_column(conn, "goals", "manual_rate", "INTEGER")
     conn.commit()
     conn.close()
 
@@ -588,6 +590,34 @@ def set_goal(user_id, period, target_minutes, is_public):
         conn.close()
 
 
+def set_progress(user_id, period, achievement_rate, is_public):
+    """週・月の手動達成率と公開設定を保存する。
+
+    target_minutes は旧UIとの後方互換のため残し、新規行ではダミー値1を入れる。
+    実際にかけた時間は events から自動集計する。
+    """
+    conn = get_connection()
+    try:
+        existing = conn.execute(
+            "SELECT id FROM goals WHERE user_id = ? AND period = ?", (user_id, period)
+        ).fetchone()
+        ts = now_str()
+        if existing:
+            conn.execute(
+                "UPDATE goals SET manual_rate = ?, is_public = ?, updated_at = ? WHERE id = ?",
+                (achievement_rate, 1 if is_public else 0, ts, existing["id"]),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO goals (user_id, period, target_minutes, manual_rate, is_public, created_at, updated_at) "
+                "VALUES (?, ?, 1, ?, ?, ?, ?)",
+                (user_id, period, achievement_rate, 1 if is_public else 0, ts, ts),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def delete_goal(user_id, period):
     conn = get_connection()
     try:
@@ -613,7 +643,7 @@ def _period_bounds(period, today=None):
 
 
 def compute_progress(user_id):
-    """今日・週・月の合計時間(分)と、目標がある場合は達成率を返す"""
+    """今日・週・月の記録時間と、手動または旧目標由来の達成率を返す"""
     from datetime import time as dtime
 
     today = datetime.now().date()
@@ -629,12 +659,15 @@ def compute_progress(user_id):
         ) // 60
         goal = get_goal(user_id, period)
         target = goal["target_minutes"] if goal else None
-        rate = round(total_minutes / target * 100) if target else None
+        manual_rate = goal.get("manual_rate") if goal else None
+        rate = manual_rate if manual_rate is not None else (round(total_minutes / target * 100) if target else 0)
         result[period] = {
             "total_minutes": total_minutes,
             "target_minutes": target,
             "achievement_rate": rate,
             "is_public": bool(goal["is_public"]) if goal else False,
+            "has_progress": goal is not None,
+            "is_manual": manual_rate is not None,
         }
     return result
 
@@ -645,7 +678,7 @@ def get_friend_public_progress(user_id):
     public = {}
     for period in ("week", "month"):
         info = full[period]
-        if info["is_public"] and info["target_minutes"]:
+        if info["is_public"] and info["has_progress"]:
             public[period] = {
                 "total_minutes": info["total_minutes"],
                 "target_minutes": info["target_minutes"],

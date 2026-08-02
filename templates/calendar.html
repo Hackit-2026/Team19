@@ -6,9 +6,9 @@
   <div class="badge">👤 {{ target_user.display_name }} さんのカレンダー(閲覧のみ)</div>
   {% if friend_progress %}
     <div class="empty-note" style="margin-bottom:10px;">
-      {% if friend_progress.week %}週の達成率 <strong>{{ friend_progress.week.achievement_rate }}%</strong>(目標 {{ (friend_progress.week.target_minutes // 60) }}時間{{ friend_progress.week.target_minutes % 60 }}分){% endif %}
+      {% if friend_progress.week %}週の進捗 <strong>{{ friend_progress.week.achievement_rate }}%</strong>・かけた時間 {{ (friend_progress.week.total_minutes // 60) }}時間{{ friend_progress.week.total_minutes % 60 }}分{% endif %}
       {% if friend_progress.week and friend_progress.month %} ・ {% endif %}
-      {% if friend_progress.month %}月の達成率 <strong>{{ friend_progress.month.achievement_rate }}%</strong>(目標 {{ (friend_progress.month.target_minutes // 60) }}時間{{ friend_progress.month.target_minutes % 60 }}分){% endif %}
+      {% if friend_progress.month %}月の進捗 <strong>{{ friend_progress.month.achievement_rate }}%</strong>・かけた時間 {{ (friend_progress.month.total_minutes // 60) }}時間{{ friend_progress.month.total_minutes % 60 }}分{% endif %}
     </div>
   {% endif %}
 {% endif %}

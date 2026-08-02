@@ -95,3 +95,38 @@ def test_database_survives_new_connections(app):
     user_id = db.create_user("Persistent", "persistent@example.com", "password")
     assert user_id is not None
     assert db.get_user_by_email("persistent@example.com")["id"] == user_id
+
+
+def test_manual_progress_is_saved_and_returned(app):
+    user_id = db.create_user("Progress", "progress@example.com", "password")
+
+    db.set_progress(user_id, "week", 67, True)
+
+    saved = db.get_goal(user_id, "week")
+    progress = db.compute_progress(user_id)
+    assert saved["manual_rate"] == 67
+    assert saved["is_public"] == 1
+    assert progress["week"]["achievement_rate"] == 67
+    assert progress["week"]["has_progress"] is True
+
+
+def test_progress_page_accepts_manual_rate(client):
+    user_id = db.create_user("Progress", "progress-page@example.com", "password", email_verified=True)
+    token = csrf_token(client.get("/login"))
+    client.post(
+        "/login",
+        data={"email": "progress-page@example.com", "password": "password", "csrf_token": token},
+    )
+
+    page = client.get("/progress")
+    assert page.status_code == 200
+    assert "現在の達成率" in page.get_data(as_text=True)
+
+    token = csrf_token(page)
+    response = client.post(
+        "/progress",
+        data={"period": "month", "achievement_rate": "125", "is_public": "1", "csrf_token": token},
+    )
+
+    assert response.status_code == 302
+    assert db.get_goal(user_id, "month")["manual_rate"] == 125
