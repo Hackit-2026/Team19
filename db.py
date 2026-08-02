@@ -14,6 +14,7 @@ outbox テーブルに保存して「開発用メールボックス」画面(/de
 """
 
 import os
+import re
 import secrets
 import sqlite3
 from datetime import datetime, timedelta
@@ -187,6 +188,7 @@ def init_db(reset=False):
     # 既存DBに対する後方互換マイグレーション(列追加)
     _ensure_column(conn, "events", "category", "TEXT")
     _ensure_column(conn, "events", "visibility", "TEXT NOT NULL DEFAULT 'public'")
+    _ensure_column(conn, "events", "custom_color", "TEXT")
     _ensure_column(conn, "goals", "manual_rate", "INTEGER")
     conn.commit()
     conn.close()
@@ -450,14 +452,15 @@ def find_conflicts(user_id, start_at, end_at, exclude_id=None):
         conn.close()
 
 
-def add_event(user_id, title, start_at, end_at, memo="", source="manual", category=None, visibility="public"):
+def add_event(user_id, title, start_at, end_at, memo="", source="manual", category=None, visibility="public", custom_color=None):
     conn = get_connection()
     try:
+        custom_color = custom_color if custom_color and re.fullmatch(r"#[0-9a-fA-F]{6}", custom_color) else None
         ts = now_str()
         cur = conn.execute(
-            "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, title, to_str(start_at), to_str(end_at), memo, source, category or None, visibility, ts, ts),
+            "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, custom_color, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, title, to_str(start_at), to_str(end_at), memo, source, category or None, visibility, custom_color, ts, ts),
         )
         conn.commit()
         return cur.lastrowid
@@ -474,12 +477,13 @@ def get_event(event_id):
         conn.close()
 
 
-def update_event(event_id, title, start_at, end_at, memo="", category=None, visibility="public"):
+def update_event(event_id, title, start_at, end_at, memo="", category=None, visibility="public", custom_color=None):
     conn = get_connection()
     try:
+        custom_color = custom_color if custom_color and re.fullmatch(r"#[0-9a-fA-F]{6}", custom_color) else None
         conn.execute(
-            "UPDATE events SET title = ?, start_at = ?, end_at = ?, memo = ?, category = ?, visibility = ?, updated_at = ? WHERE id = ?",
-            (title, to_str(start_at), to_str(end_at), memo, category or None, visibility, now_str(), event_id),
+            "UPDATE events SET title = ?, start_at = ?, end_at = ?, memo = ?, category = ?, visibility = ?, custom_color = ?, updated_at = ? WHERE id = ?",
+            (title, to_str(start_at), to_str(end_at), memo, category or None, visibility, custom_color, now_str(), event_id),
         )
         conn.commit()
     finally:

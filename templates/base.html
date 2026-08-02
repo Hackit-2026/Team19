@@ -15,7 +15,6 @@
     <a href="{{ url_for('calendar_view') }}" class="{{ 'active' if request.endpoint in ('calendar_view',) else '' }}">カレンダー</a>
     <a href="{{ url_for('timer_view') }}" class="{{ 'active' if request.endpoint == 'timer_view' else '' }}">タイマー</a>
     <a href="{{ url_for('friends_view') }}" class="{{ 'active' if request.endpoint == 'friends_view' else '' }}">フレンド</a>
-    <a href="{{ url_for('select_friend_calendar') }}" class="{{ 'active' if request.endpoint == 'select_friend_calendar' or request.endpoint == 'friend_calendar_view' else '' }}">フレンドのカレンダー</a>
     <a href="{{ url_for('progress_goals_view') }}" class="{{ 'active' if request.endpoint in ('progress_goals_view', 'progress_goal_new', 'progress_goal_detail', 'progress_goal_edit', 'friend_progress_goals_view') else '' }}">進捗</a>
     <a href="{{ url_for('reports_view') }}" class="{{ 'active' if request.endpoint == 'reports_view' else '' }}">集計</a>
     <a href="{{ url_for('feed_view') }}" class="{{ 'active' if request.endpoint == 'feed_view' else '' }}">フィード{% if unread_feed %}<span class="nav-badge">{{ unread_feed }}</span>{% endif %}</a>

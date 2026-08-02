@@ -39,6 +39,13 @@
   outline: 2px solid #7aa7dd;
   outline-offset: -2px;
 }
+.month-grid td { position: relative; }
+.month-add-link { position: absolute; z-index: 1; inset: 0; }
+.month-grid .date-num,
+.month-grid .ev,
+.month-grid .ev-more { position: relative; z-index: 2; }
+.month-grid .ev { text-decoration: none; }
+.month-grid .ev:hover { text-decoration: underline; }
 .ev-tag {
   position: absolute;
   z-index: 2;

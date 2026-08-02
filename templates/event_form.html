@@ -35,6 +35,11 @@
       {% for c in category_presets %}<option value="{{ c }}">{% endfor %}
     </datalist>
 
+    <label class="field-label" for="custom-color">予定の色</label>
+    <label class="color-setting"><input id="use-custom-color" type="checkbox" {{ 'checked' if form.custom_color else '' }}> 色を指定する</label>
+    <input id="custom-color" type="color" name="custom_color" value="{{ form.custom_color or '#3f7fc1' }}" {{ '' if form.custom_color else 'disabled' }}>
+    <div class="empty-note">未指定の場合はカテゴリの色で表示されます。</div>
+
     <label class="field-label">メモ(任意)</label>
     <textarea class="field" name="memo" rows="3">{{ form.memo }}</textarea>
 
@@ -83,6 +88,12 @@
     };
     input.addEventListener('input', updatePreview);
     updatePreview();
+  })();
+  (() => {
+    const toggle = document.getElementById('use-custom-color');
+    const color = document.getElementById('custom-color');
+    if (!toggle || !color) return;
+    toggle.addEventListener('change', () => { color.disabled = !toggle.checked; });
   })();
 </script>
 {% endblock %}

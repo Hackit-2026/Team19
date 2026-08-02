@@ -1,4 +1,5 @@
 import os
+from datetime import datetime
 import re
 import subprocess
 import sys
@@ -481,3 +482,66 @@ def test_named_progress_goal_owner_and_public_access(client, app):
         ).status_code
         == 302
     )
+
+
+def test_new_event_query_prefill_and_invalid_values(client, app):
+    user_id = db.create_user("Click", "click@example.com", "password", email_verified=True)
+    with client.session_transaction() as session:
+        session["user_id"] = user_id
+
+    response = client.get("/events/new?date=2026-08-05&start=14:00&end=14:30")
+    html = response.get_data(as_text=True)
+    assert response.status_code == 200
+    assert 'name="date" value="2026-08-05"' in html
+    assert 'name="start_time" value="14:00"' in html
+    assert 'name="end_time" value="14:30"' in html
+
+    invalid = client.get("/events/new?date=invalid&start=14:30&end=14:00")
+    assert "日付または時刻の形式が正しくありません" in invalid.get_data(as_text=True)
+
+
+def test_calendar_direct_add_links_respect_owner_only(client, app):
+    owner = db.create_user("Owner", "calendar-owner@example.com", "password", email_verified=True)
+    friend = db.create_user("Friend", "calendar-friend@example.com", "password", email_verified=True)
+    db.send_friend_request(owner, "calendar-friend@example.com")
+    friendship_id = db.get_received_requests(friend)[0]["friendship_id"]
+    db.respond_to_request(friendship_id, friend, accept=True)
+
+    with client.session_transaction() as session:
+        session["user_id"] = owner
+    own_week = client.get("/calendar?view=week&date=2026-08-05").get_data(as_text=True)
+    own_month = client.get("/calendar?view=month&date=2026-08-05").get_data(as_text=True)
+    assert "/events/new?date=2026-08-05" in own_week
+    assert "/events/new?date=2026-08-05" in own_month
+
+    with client.session_transaction() as session:
+        session["user_id"] = friend
+    friend_month = client.get(f"/calendar/{owner}?view=month&date=2026-08-05").get_data(as_text=True)
+    assert "/events/new" not in friend_month
+
+
+def test_event_custom_color_is_validated_and_rendered(client, app):
+    user_id = db.create_user("Color", "color@example.com", "password", email_verified=True)
+    start = datetime(2026, 8, 5, 10, 0)
+    event_id = db.add_event(user_id, "色付き予定", start, datetime(2026, 8, 5, 10, 30), custom_color="#ff5733")
+    invalid_id = db.add_event(user_id, "不正色", start, datetime(2026, 8, 5, 10, 30), custom_color="red")
+    assert db.get_event(event_id)["custom_color"] == "#ff5733"
+    assert db.get_event(invalid_id)["custom_color"] is None
+    with client.session_transaction() as session:
+        session["user_id"] = user_id
+    assert "background-color: #ff5733" in client.get("/calendar?view=week&date=2026-08-05").get_data(as_text=True)
+
+
+def test_friend_request_is_managed_from_notifications(client, app):
+    requester = db.create_user("Requester", "requester@example.com", "password", email_verified=True)
+    recipient = db.create_user("Recipient", "recipient@example.com", "password", email_verified=True)
+    with client.session_transaction() as session:
+        session["user_id"] = requester
+    token = csrf_token(client.get("/friends"))
+    client.post("/friends/request", data={"email": "recipient@example.com", "csrf_token": token})
+    with client.session_transaction() as session:
+        session["user_id"] = recipient
+    notifications = client.get("/notifications").get_data(as_text=True)
+    assert "フレンド申請" in notifications
+    assert "承認" in notifications and "拒否" in notifications
+    assert "受信した申請" not in client.get("/friends").get_data(as_text=True)

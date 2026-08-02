@@ -10,6 +10,7 @@ app.py
 """
 
 import os
+import re
 from datetime import datetime, date, time, timedelta
 from functools import wraps
 from urllib.parse import urlsplit
@@ -356,6 +357,7 @@ def render_calendar(target_user, viewing_own, back_url=None):
             weekday_names=cu.WEEKDAY_NAMES,
             slot_label=cu.slot_label,
             category_class=cu.category_class,
+            event_color_style=event_color_style,
             today=date.today(),
             switch_month_url=url_for(request.endpoint, view="month", date=ref_date.isoformat(), **({"user_id": target_user["id"]} if not viewing_own else {})),
             switch_week_url=url_for(request.endpoint, view="week", date=ref_date.isoformat(), **({"user_id": target_user["id"]} if not viewing_own else {})),
@@ -397,6 +399,7 @@ def render_calendar(target_user, viewing_own, back_url=None):
         slots_per_day=cu.SLOTS_PER_DAY,
         slot_label=cu.slot_label,
         category_class=cu.category_class,
+        event_color_style=event_color_style,
     )
 
 
@@ -422,6 +425,14 @@ def friend_calendar_view(user_id):
 # 予定の追加・編集・削除(重複警告・カテゴリ・公開範囲つき)
 # ---------------------------------------------------------------------------
 
+def event_color_style(custom_color):
+    if not custom_color or not re.fullmatch(r"#[0-9a-fA-F]{6}", custom_color):
+        return ""
+    red, green, blue = (int(custom_color[i:i + 2], 16) for i in (1, 3, 5))
+    luminance = (red * 299 + green * 587 + blue * 114) / 1000
+    text_color = "#1f2937" if luminance >= 160 else "#ffffff"
+    return f"background-color: {custom_color}; border-color: {custom_color}; color: {text_color};"
+
 def _parse_event_form():
     date_str = request.form.get("date", "")
     start_str = request.form.get("start_time", "")
@@ -429,6 +440,9 @@ def _parse_event_form():
     title = request.form.get("title", "").strip()
     memo = request.form.get("memo", "").strip()
     category = request.form.get("category", "").strip() or None
+    custom_color = request.form.get("custom_color", "").strip()
+    if not re.fullmatch(r"#[0-9a-fA-F]{6}", custom_color):
+        custom_color = None
     visibility = request.form.get("visibility", "public")
     if visibility not in ("public", "private"):
         visibility = "public"
@@ -445,19 +459,19 @@ def _parse_event_form():
             end_at = datetime.combine(d + timedelta(days=1), end_t)
     except ValueError:
         errors.append("日付・時刻の形式が正しくありません")
-        return None, None, None, None, None, None, errors
+        return None, None, None, None, None, None, None, errors
 
     if not title:
         errors.append("内容を入力してください")
 
-    return title, start_at, end_at, memo, category, visibility, errors
+    return title, start_at, end_at, memo, category, visibility, custom_color, errors
 
 
 @app.route("/events/new", methods=["GET", "POST"])
 @login_required
 def new_event():
     if request.method == "POST":
-        title, start_at, end_at, memo, category, visibility, errors = _parse_event_form()
+        title, start_at, end_at, memo, category, visibility, custom_color, errors = _parse_event_form()
         if errors:
             for e in errors:
                 flash(e, "error")
@@ -470,23 +484,42 @@ def new_event():
                 "event_confirm.html",
                 title=title, date=start_at.date().isoformat(),
                 start_time=start_at.strftime("%H:%M"), end_time=end_at.strftime("%H:%M"),
-                memo=memo, category=category or "", visibility=visibility,
+                memo=memo, category=category or "", visibility=visibility, custom_color=custom_color or "",
                 conflicts=conflicts, mode="new", event_id=None,
             )
 
-        db.add_event(g.user["id"], title, start_at, end_at, memo=memo, source="manual", category=category, visibility=visibility)
+        db.add_event(g.user["id"], title, start_at, end_at, memo=memo, source="manual", category=category, visibility=visibility, custom_color=custom_color)
         flash("予定を追加しました", "info")
         return redirect(url_for("calendar_view", view="week", date=start_at.date().isoformat()))
 
     prefill = {
-        "date": request.args.get("date", date.today().isoformat()),
-        "start_time": request.args.get("start", "09:00"),
-        "end_time": request.args.get("end", "09:30"),
+        "date": date.today().isoformat(),
+        "start_time": "09:00",
+        "end_time": "09:30",
         "title": "",
         "memo": "",
         "category": "",
+        "custom_color": "",
         "visibility": "public",
     }
+    query_date = request.args.get("date")
+    query_start = request.args.get("start")
+    query_end = request.args.get("end")
+    try:
+        if query_date:
+            prefill["date"] = date.fromisoformat(query_date).isoformat()
+        if query_start:
+            datetime.strptime(query_start, "%H:%M")
+            prefill["start_time"] = query_start
+        if query_end:
+            datetime.strptime(query_end, "%H:%M")
+            prefill["end_time"] = query_end
+        if query_start and query_end and query_end <= query_start:
+            raise ValueError
+    except ValueError:
+        flash("日付または時刻の形式が正しくありません", "error")
+        prefill["start_time"] = "09:00"
+        prefill["end_time"] = "09:30"
     return render_template("event_form.html", mode="new", form=prefill, presets=db.TASK_PRESETS, category_presets=db.CATEGORY_PRESETS)
 
 
@@ -499,7 +532,7 @@ def edit_event(event_id):
         return redirect(url_for("calendar_view"))
 
     if request.method == "POST":
-        title, start_at, end_at, memo, category, visibility, errors = _parse_event_form()
+        title, start_at, end_at, memo, category, visibility, custom_color, errors = _parse_event_form()
         if errors:
             for e in errors:
                 flash(e, "error")
@@ -512,11 +545,11 @@ def edit_event(event_id):
                 "event_confirm.html",
                 title=title, date=start_at.date().isoformat(),
                 start_time=start_at.strftime("%H:%M"), end_time=end_at.strftime("%H:%M"),
-                memo=memo, category=category or "", visibility=visibility,
+                memo=memo, category=category or "", visibility=visibility, custom_color=custom_color or "",
                 conflicts=conflicts, mode="edit", event_id=event_id,
             )
 
-        db.update_event(event_id, title, start_at, end_at, memo=memo, category=category, visibility=visibility)
+        db.update_event(event_id, title, start_at, end_at, memo=memo, category=category, visibility=visibility, custom_color=custom_color)
         flash("予定を更新しました", "info")
         return redirect(url_for("calendar_view", view="week", date=start_at.date().isoformat()))
 
@@ -529,6 +562,7 @@ def edit_event(event_id):
         "title": ev["title"],
         "memo": ev["memo"] or "",
         "category": ev["category"] or "",
+        "custom_color": ev["custom_color"] or "",
         "visibility": ev["visibility"],
     }
     return render_template("event_form.html", mode="edit", form=form, presets=db.TASK_PRESETS, category_presets=db.CATEGORY_PRESETS, event_id=event_id)
@@ -804,7 +838,7 @@ def feed_view():
 def notifications_view():
     items = db.get_notifications(g.user["id"])
     db.mark_notifications_read(g.user["id"])
-    return render_template("notifications.html", items=items)
+    return render_template("notifications.html", items=items, received=db.get_received_requests(g.user["id"]))
 
 
 # ---------------------------------------------------------------------------
@@ -820,8 +854,6 @@ def friends_view():
     return render_template(
         "friends.html",
         friends=friends,
-        received=db.get_received_requests(g.user["id"]),
-        sent=db.get_sent_requests(g.user["id"]),
     )
 
 
@@ -883,9 +915,14 @@ def friends_accept(friendship_id):
 @app.route("/friends/<int:friendship_id>/decline", methods=["POST"])
 @login_required
 def friends_decline(friendship_id):
-    ok, _ = db.respond_to_request(friendship_id, g.user["id"], accept=False)
+    ok, requester_id = db.respond_to_request(friendship_id, g.user["id"], accept=False)
     if ok:
         flash("申請を拒否しました", "info")
+        if requester_id:
+            db.create_notification(
+                requester_id, "friend_decline",
+                f"{g.user['display_name']} さんへのフレンド申請は承認されませんでした", url_for("friends_view"),
+            )
     else:
         flash("処理できませんでした", "error")
     return redirect(url_for("friends_view"))

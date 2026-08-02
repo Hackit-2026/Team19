@@ -226,6 +226,7 @@
                 style="
                   top: {{ item.display_top * 1.5 }}px;
                   height: {{ item.display_duration * 1.5 }}px;
+                  {{ event_color_style(ev.custom_color) }}
                 "
                 title="{{ ev.title }}"
               >
@@ -254,6 +255,7 @@
                 style="
                   top: {{ item.display_top * 1.5 }}px;
                   height: {{ item.display_duration * 1.5 }}px;
+                  {{ event_color_style(ev.custom_color) }}
                 "
                 title="{{ ev.title }}"
               >
@@ -298,28 +300,33 @@
                 {{ 'today' if cell.date == today else '' }}
               "
             >
+              {% if viewing_own %}
+                <a
+                  class="month-add-link"
+                  aria-label="{{ cell.date.isoformat() }} に予定を追加"
+                  href="{{ url_for('new_event', date=cell.date.isoformat()) }}"
+                ></a>
+              {% endif %}
               <a
                 class="date-num"
-                href="{{ week_url(cell.date) }}"
+                href="{{ url_for('new_event', date=cell.date.isoformat()) if viewing_own else week_url(cell.date) }}"
               >
                 {{ cell.date.month }}/{{ cell.date.day }}
                 {{ '・今日' if cell.date == today else '' }}
               </a>
 
               {% for ev in cell.events[:3] %}
-                <span
-                  class="
-                    ev
-                    calendar-event
-                    category-{{ category_class(ev.category) }}
-                  "
-                >
-                  {{ '🔒 ' if
-                     viewing_own and
-                     ev.visibility == 'private'
-                     else '' }}
-                  {{ ev.title }}
-                </span>
+                {% if viewing_own %}
+                  <a
+                    class="ev calendar-event category-{{ category_class(ev.category) }}"
+                    href="{{ url_for('edit_event', event_id=ev.id) }}"
+                    style="{{ event_color_style(ev.custom_color) }}"
+                  >
+                    {{ '🔒 ' if ev.visibility == 'private' else '' }}{{ ev.title }}
+                  </a>
+                {% else %}
+                  <span class="ev calendar-event category-{{ category_class(ev.category) }}" style="{{ event_color_style(ev.custom_color) }}">{{ ev.title }}</span>
+                {% endif %}
               {% endfor %}
 
               {% if cell.events|length > 3 %}
