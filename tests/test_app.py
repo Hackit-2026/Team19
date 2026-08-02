@@ -207,7 +207,7 @@ def test_progress_page_accepts_manual_rate(client):
     assert db.get_goal(user_id, "month")["manual_rate"] == 125
 
 
-def test_friends_page_shows_public_progress_and_spent_time(client):
+def test_friends_page_hides_progress_summary(client):
     viewer_id = db.create_user(
         "Viewer",
         "viewer@example.com",
@@ -275,10 +275,15 @@ def test_friends_page_shows_public_progress_and_spent_time(client):
     body = page.get_data(as_text=True)
 
     assert page.status_code == 200
-    assert "公開中の進捗" in body
-    assert "67%" in body
-    assert "費やした時間" in body
-    assert "1時間30分" in body
+    assert "Friend" in body
+    assert "進捗を見る" in body
+    assert "解除" in body
+    assert f"/progress/friend/{friend_id}" in body
+    assert "公開中の進捗" not in body
+    assert "進捗は公開されていません" not in body
+    assert "67%" not in body
+    assert "費やした時間" not in body
+    assert "1時間30分" not in body
 
 
 def test_named_progress_goal_and_update_history(app):
