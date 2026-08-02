@@ -12,14 +12,39 @@ app.py
 import os
 from datetime import datetime, date, time, timedelta
 from functools import wraps
+from urllib.parse import urlsplit
 
-from flask import Flask, render_template, request, redirect, url_for, session, flash, g
+from flask import Flask, abort, render_template, request, redirect, url_for, session, flash, g
+from flask_wtf.csrf import CSRFProtect
 
 import db
 import calendar_utils as cu
 
+EVENT_COLOR_OPTIONS = [
+    "#3B82F6", "#22C55E", "#EF4444", "#F97316",
+    "#EAB308", "#8B5CF6", "#EC4899", "#64748B",
+]
+
+def env_flag(name, default=False):
+    value = os.environ.get(name)
+    if value is None:
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+secret_key = os.environ.get("SECRET_KEY")
+if not secret_key or secret_key == "replace-with-a-random-secret" or len(secret_key) < 32:
+    raise RuntimeError("SECRET_KEY environment variable must contain at least 32 characters")
+
 app = Flask(__name__)
-app.secret_key = os.environ.get("DEMO_SECRET_KEY", "demo-secret-key-not-for-production")
+app.config.update(
+    SECRET_KEY=secret_key,
+    DEV_MAILBOX_ENABLED=env_flag("DEV_MAILBOX_ENABLED"),
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=env_flag("SESSION_COOKIE_SECURE"),
+)
+csrf = CSRFProtect(app)
 
 # email_verified チェックを免除するエンドポイント(未認証ユーザーでもアクセスできる)
 VERIFY_EXEMPT_ENDPOINTS = {
@@ -67,14 +92,29 @@ def parse_date_param(value, fallback=None):
         return fallback or date.today()
 
 
+def safe_next_url(target):
+    """Return an internal redirect target, or the calendar URL if it is unsafe."""
+    if target:
+        parsed = urlsplit(target)
+        if (
+            not parsed.scheme
+            and not parsed.netloc
+            and target.startswith("/")
+            and not target.startswith("//")
+            and "\\" not in target
+        ):
+            return target
+    return url_for("calendar_view")
+
+
 @app.context_processor
 def inject_badges():
     if g.user:
         return {
             "unread_notifications": db.unread_notification_count(g.user["id"]),
-            "unread_feed": db.get_feed_unread_count(g.user["id"]),
+            "event_color_options": EVENT_COLOR_OPTIONS,
         }
-    return {}
+    return {"event_color_options": EVENT_COLOR_OPTIONS}
 
 
 # ---------------------------------------------------------------------------
@@ -84,6 +124,16 @@ def inject_badges():
 @app.route("/")
 def index():
     return redirect(url_for("calendar_view") if g.user else url_for("login"))
+
+
+@app.route("/healthz")
+def healthz():
+    conn = db.get_connection()
+    try:
+        conn.execute("SELECT 1").fetchone()
+    finally:
+        conn.close()
+    return {"status": "ok"}
 
 
 @app.route("/signup", methods=["GET", "POST"])
@@ -140,8 +190,7 @@ def login():
 
         session.clear()
         session["user_id"] = user["id"]
-        next_url = request.args.get("next") or url_for("calendar_view")
-        return redirect(next_url)
+        return redirect(safe_next_url(request.args.get("next")))
 
     return render_template("login.html", email="")
 
@@ -251,18 +300,28 @@ def account_settings():
     return render_template("account.html")
 
 
+@app.route("/mypage")
+@login_required
+def mypage():
+    return render_template("mypage.html")
+
+
 # ---------------------------------------------------------------------------
 # 開発用メールボックス(実SMTPの代わり)
 # ---------------------------------------------------------------------------
 
 @app.route("/dev/mailbox")
 def dev_mailbox():
+    if not app.config["DEV_MAILBOX_ENABLED"]:
+        abort(404)
     email = request.args.get("email", "").strip() or None
     return render_template("dev_mailbox.html", mails=db.get_outbox(email=email), filter_email=email)
 
 
 @app.route("/dev/mailbox/<int:mail_id>")
 def dev_mailbox_item(mail_id):
+    if not app.config["DEV_MAILBOX_ENABLED"]:
+        abort(404)
     mail = db.get_outbox_item(mail_id)
     if mail is None:
         flash("メールが見つかりません", "error")
@@ -307,6 +366,9 @@ def render_calendar(target_user, viewing_own, back_url=None):
             friend_progress=friend_progress,
             weekday_names=cu.WEEKDAY_NAMES,
             slot_label=cu.slot_label,
+            category_class=cu.category_class,
+            event_color_style=event_color_style,
+            event_progress_visual=event_progress_visual,
             today=date.today(),
             switch_month_url=url_for(request.endpoint, view="month", date=ref_date.isoformat(), **({"user_id": target_user["id"]} if not viewing_own else {})),
             switch_week_url=url_for(request.endpoint, view="week", date=ref_date.isoformat(), **({"user_id": target_user["id"]} if not viewing_own else {})),
@@ -315,7 +377,8 @@ def render_calendar(target_user, viewing_own, back_url=None):
     # week view (default)
     week_start = cu.week_start_of(ref_date)
     week_days = [week_start + timedelta(days=i) for i in range(7)]
-    grid = cu.build_week_grid(target_user["id"], week_start, only_public=only_public)
+    # 30分の罫線は維持し、予定カードだけを15分単位で絶対配置する。
+    week_events = cu.build_week_event_layout(target_user["id"], week_start, only_public=only_public)
     week_total = db.total_seconds_for_range(
         target_user["id"],
         datetime.combine(week_start, time.min),
@@ -328,7 +391,7 @@ def render_calendar(target_user, viewing_own, back_url=None):
     return render_template(
         "calendar.html",
         view="week",
-        grid=grid,
+        week_events=week_events,
         week_days=week_days,
         ref_date=ref_date,
         prev_url=url_for(request.endpoint, view="week", date=(week_start - timedelta(days=7)).isoformat(), **kwargs),
@@ -346,6 +409,9 @@ def render_calendar(target_user, viewing_own, back_url=None):
         weekday_names=cu.WEEKDAY_NAMES,
         slots_per_day=cu.SLOTS_PER_DAY,
         slot_label=cu.slot_label,
+        category_class=cu.category_class,
+        event_color_style=event_color_style,
+        event_progress_visual=event_progress_visual,
     )
 
 
@@ -355,21 +421,27 @@ def calendar_view():
     return render_calendar(g.user, viewing_own=True)
 
 
-@app.route("/calendar/<int:user_id>")
-@login_required
-def friend_calendar_view(user_id):
-    if user_id == g.user["id"]:
-        return redirect(url_for("calendar_view"))
-    target = db.get_user_by_id(user_id)
-    if target is None or not db.are_friends(g.user["id"], user_id):
-        flash("フレンドのカレンダーのみ閲覧できます", "error")
-        return redirect(url_for("select_friend_calendar"))
-    return render_calendar(target, viewing_own=False, back_url=url_for("calendar_view"))
+# ---------------------------------------------------------------------------
+# 予定の追加・編集・削除(重複警告・カテゴリつき)
+# ---------------------------------------------------------------------------
+
+def event_color_style(custom_color):
+    if custom_color not in EVENT_COLOR_OPTIONS:
+        return ""
+    red, green, blue = (int(custom_color[i:i + 2], 16) for i in (1, 3, 5))
+    return f"--event-color: {custom_color}; --event-light: rgba({red}, {green}, {blue}, .20); --event-actual: rgba({red}, {green}, {blue}, .50); background-color: {custom_color}; border-color: {custom_color};"
 
 
-# ---------------------------------------------------------------------------
-# 予定の追加・編集・削除(重複警告・カテゴリ・公開範囲つき)
-# ---------------------------------------------------------------------------
+def event_progress_visual(event):
+    planned_minutes = db.event_duration_minutes(event)
+    actual_minutes = max(0, int(event.get("actual_minutes") or 0)) if event.get("is_completed") else 0
+    ratio = min(100, round(actual_minutes / planned_minutes * 100, 2)) if planned_minutes else 0
+    return {
+        "planned_minutes": planned_minutes,
+        "actual_minutes": actual_minutes,
+        "ratio": ratio,
+        "overtime_minutes": max(0, actual_minutes - planned_minutes),
+    }
 
 def _parse_event_form():
     date_str = request.form.get("date", "")
@@ -378,11 +450,22 @@ def _parse_event_form():
     title = request.form.get("title", "").strip()
     memo = request.form.get("memo", "").strip()
     category = request.form.get("category", "").strip() or None
-    visibility = request.form.get("visibility", "public")
-    if visibility not in ("public", "private"):
-        visibility = "public"
-
+    custom_color = request.form.get("custom_color", "").strip().upper()
+    if custom_color not in EVENT_COLOR_OPTIONS:
+        custom_color = None
+    progress_goal_id = request.form.get("progress_goal_id", "").strip()
     errors = []
+    if progress_goal_id:
+        try:
+            progress_goal_id = int(progress_goal_id)
+        except ValueError:
+            errors.append("関連する進捗目標を確認してください")
+            progress_goal_id = None
+        if progress_goal_id and db.get_progress_goal(progress_goal_id, g.user["id"]) is None:
+            errors.append("関連する進捗目標を確認してください")
+            progress_goal_id = None
+    else:
+        progress_goal_id = None
     try:
         d = datetime.strptime(date_str, "%Y-%m-%d").date()
         start_t = datetime.strptime(start_str, "%H:%M").time()
@@ -394,23 +477,23 @@ def _parse_event_form():
             end_at = datetime.combine(d + timedelta(days=1), end_t)
     except ValueError:
         errors.append("日付・時刻の形式が正しくありません")
-        return None, None, None, None, None, None, errors
+        return None, None, None, None, None, None, None, errors
 
     if not title:
         errors.append("内容を入力してください")
 
-    return title, start_at, end_at, memo, category, visibility, errors
+    return title, start_at, end_at, memo, category, custom_color, progress_goal_id, errors
 
 
 @app.route("/events/new", methods=["GET", "POST"])
 @login_required
 def new_event():
     if request.method == "POST":
-        title, start_at, end_at, memo, category, visibility, errors = _parse_event_form()
+        title, start_at, end_at, memo, category, custom_color, progress_goal_id, errors = _parse_event_form()
         if errors:
             for e in errors:
                 flash(e, "error")
-            return render_template("event_form.html", mode="new", form=request.form, presets=db.TASK_PRESETS, category_presets=db.CATEGORY_PRESETS)
+            return render_template("event_form.html", mode="new", form=request.form, presets=db.TASK_PRESETS, category_presets=db.CATEGORY_PRESETS, progress_goals=db.get_progress_goals(g.user["id"]))
 
         confirm = request.form.get("confirm") == "1"
         conflicts = db.find_conflicts(g.user["id"], start_at, end_at)
@@ -419,24 +502,43 @@ def new_event():
                 "event_confirm.html",
                 title=title, date=start_at.date().isoformat(),
                 start_time=start_at.strftime("%H:%M"), end_time=end_at.strftime("%H:%M"),
-                memo=memo, category=category or "", visibility=visibility,
+                memo=memo, category=category or "", custom_color=custom_color or "", progress_goal_id=progress_goal_id or "",
                 conflicts=conflicts, mode="new", event_id=None,
             )
 
-        db.add_event(g.user["id"], title, start_at, end_at, memo=memo, source="manual", category=category, visibility=visibility)
+        db.add_event(g.user["id"], title, start_at, end_at, memo=memo, source="manual", category=category, custom_color=custom_color, progress_goal_id=progress_goal_id)
         flash("予定を追加しました", "info")
         return redirect(url_for("calendar_view", view="week", date=start_at.date().isoformat()))
 
     prefill = {
-        "date": request.args.get("date", date.today().isoformat()),
-        "start_time": request.args.get("start", "09:00"),
-        "end_time": request.args.get("end", "09:30"),
+        "date": date.today().isoformat(),
+        "start_time": "09:00",
+        "end_time": "09:30",
         "title": "",
         "memo": "",
         "category": "",
-        "visibility": "public",
+        "custom_color": "#3B82F6",
+        "progress_goal_id": "",
     }
-    return render_template("event_form.html", mode="new", form=prefill, presets=db.TASK_PRESETS, category_presets=db.CATEGORY_PRESETS)
+    query_date = request.args.get("date")
+    query_start = request.args.get("start")
+    query_end = request.args.get("end")
+    try:
+        if query_date:
+            prefill["date"] = date.fromisoformat(query_date).isoformat()
+        if query_start:
+            datetime.strptime(query_start, "%H:%M")
+            prefill["start_time"] = query_start
+        if query_end:
+            datetime.strptime(query_end, "%H:%M")
+            prefill["end_time"] = query_end
+        if query_start and query_end and query_end <= query_start:
+            raise ValueError
+    except ValueError:
+        flash("日付または時刻の形式が正しくありません", "error")
+        prefill["start_time"] = "09:00"
+        prefill["end_time"] = "09:30"
+    return render_template("event_form.html", mode="new", form=prefill, presets=db.TASK_PRESETS, category_presets=db.CATEGORY_PRESETS, progress_goals=db.get_progress_goals(g.user["id"]))
 
 
 @app.route("/events/<int:event_id>/edit", methods=["GET", "POST"])
@@ -448,11 +550,11 @@ def edit_event(event_id):
         return redirect(url_for("calendar_view"))
 
     if request.method == "POST":
-        title, start_at, end_at, memo, category, visibility, errors = _parse_event_form()
+        title, start_at, end_at, memo, category, custom_color, progress_goal_id, errors = _parse_event_form()
         if errors:
             for e in errors:
                 flash(e, "error")
-            return render_template("event_form.html", mode="edit", form=request.form, presets=db.TASK_PRESETS, category_presets=db.CATEGORY_PRESETS, event_id=event_id)
+            return render_template("event_form.html", mode="edit", form=request.form, presets=db.TASK_PRESETS, category_presets=db.CATEGORY_PRESETS, progress_goals=db.get_progress_goals(g.user["id"]), event_id=event_id, event=ev, event_duration_minutes=db.event_duration_minutes(ev))
 
         confirm = request.form.get("confirm") == "1"
         conflicts = db.find_conflicts(g.user["id"], start_at, end_at, exclude_id=event_id)
@@ -461,11 +563,11 @@ def edit_event(event_id):
                 "event_confirm.html",
                 title=title, date=start_at.date().isoformat(),
                 start_time=start_at.strftime("%H:%M"), end_time=end_at.strftime("%H:%M"),
-                memo=memo, category=category or "", visibility=visibility,
+                memo=memo, category=category or "", custom_color=custom_color or "", progress_goal_id=progress_goal_id or "",
                 conflicts=conflicts, mode="edit", event_id=event_id,
             )
 
-        db.update_event(event_id, title, start_at, end_at, memo=memo, category=category, visibility=visibility)
+        db.update_event(event_id, title, start_at, end_at, memo=memo, category=category, custom_color=custom_color, progress_goal_id=progress_goal_id)
         flash("予定を更新しました", "info")
         return redirect(url_for("calendar_view", view="week", date=start_at.date().isoformat()))
 
@@ -478,9 +580,37 @@ def edit_event(event_id):
         "title": ev["title"],
         "memo": ev["memo"] or "",
         "category": ev["category"] or "",
-        "visibility": ev["visibility"],
+        "custom_color": ev["custom_color"] or "",
+        "progress_goal_id": ev["progress_goal_id"] or "",
     }
-    return render_template("event_form.html", mode="edit", form=form, presets=db.TASK_PRESETS, category_presets=db.CATEGORY_PRESETS, event_id=event_id)
+    return render_template("event_form.html", mode="edit", form=form, presets=db.TASK_PRESETS, category_presets=db.CATEGORY_PRESETS, progress_goals=db.get_progress_goals(g.user["id"]), event_id=event_id, event=ev, event_duration_minutes=db.event_duration_minutes(ev))
+
+
+@app.route("/events/<int:event_id>/complete", methods=["POST"])
+@login_required
+def complete_event(event_id):
+    try:
+        actual_minutes = int(request.form.get("actual_minutes", ""))
+        if actual_minutes < 0:
+            raise ValueError
+    except ValueError:
+        flash("実績時間は0以上の整数で入力してください", "error")
+        return redirect(url_for("edit_event", event_id=event_id))
+    if not db.complete_event(event_id, g.user["id"], actual_minutes):
+        flash("予定が見つかりません", "error")
+    else:
+        flash("予定を完了にしました", "info")
+    return redirect(url_for("edit_event", event_id=event_id))
+
+
+@app.route("/events/<int:event_id>/uncomplete", methods=["POST"])
+@login_required
+def uncomplete_event(event_id):
+    if not db.uncomplete_event(event_id, g.user["id"]):
+        flash("予定が見つかりません", "error")
+    else:
+        flash("予定の完了を取り消しました", "info")
+    return redirect(url_for("edit_event", event_id=event_id))
 
 
 @app.route("/events/<int:event_id>/delete", methods=["POST"])
@@ -504,7 +634,7 @@ def delete_event(event_id):
 @login_required
 def timer_view():
     active = db.get_active_timer(g.user["id"])
-    return render_template("timer.html", active=active, presets=db.TASK_PRESETS)
+    return render_template("timer.html", active=active, presets=db.TASK_PRESETS, incomplete_events=db.get_incomplete_events(g.user["id"]))
 
 
 @app.route("/timer/start", methods=["POST"])
@@ -513,11 +643,21 @@ def timer_start():
     if db.get_active_timer(g.user["id"]) is not None:
         flash("既にタイマーが動作中です", "error")
         return redirect(url_for("timer_view"))
-    task = request.form.get("task", "").strip()
+    event_id = request.form.get("event_id", "").strip()
+    event = None
+    if event_id:
+        try:
+            event = db.get_event(int(event_id))
+        except ValueError:
+            event = None
+        if event is None or event["user_id"] != g.user["id"] or event["is_completed"]:
+            flash("連携する予定を確認してください", "error")
+            return redirect(url_for("timer_view"))
+    task = request.form.get("task", "").strip() or (event["title"] if event else "")
     if not task:
         flash("内容を選択または入力してください", "error")
         return redirect(url_for("timer_view"))
-    db.start_timer(g.user["id"], task)
+    db.start_timer(g.user["id"], task, event_id=event["id"] if event else None)
     return redirect(url_for("timer_view"))
 
 
@@ -537,14 +677,11 @@ def timer_stopped(event_id):
     ev = db.get_event(event_id)
     if ev is None or ev["user_id"] != g.user["id"]:
         return redirect(url_for("timer_view"))
-    progress = db.compute_progress(g.user["id"])
-    return render_template("timer_stopped.html", event=ev, progress=progress, duration=cu.format_duration(
-        (db.parse_dt(ev["end_at"]) - db.parse_dt(ev["start_at"])).total_seconds()
-    ))
+    return render_template("timer_stopped.html", event=ev, auto_week=db.get_auto_category_progress(g.user["id"], "week"), auto_month=db.get_auto_category_progress(g.user["id"], "month"), duration=cu.format_duration((ev["actual_minutes"] or 0) * 60))
 
 
 # ---------------------------------------------------------------------------
-# 目標・進捗
+# 進捗
 # ---------------------------------------------------------------------------
 
 @app.route("/goals", methods=["GET", "POST"])
@@ -555,17 +692,17 @@ def goals_view():
         if period not in ("week", "month"):
             flash("不正なリクエストです", "error")
             return redirect(url_for("goals_view"))
-        target_hours = request.form.get("target_hours", "").strip()
+        rate_value = request.form.get("achievement_rate", "").strip()
         is_public = request.form.get("is_public") == "1"
         try:
-            target_minutes = int(round(float(target_hours) * 60))
-            if target_minutes <= 0:
+            achievement_rate = int(rate_value)
+            if achievement_rate < 0 or achievement_rate > 999:
                 raise ValueError
         except ValueError:
-            flash("目標時間は正の数値で入力してください", "error")
+            flash("達成率は0〜999の整数で入力してください", "error")
             return redirect(url_for("goals_view"))
-        db.set_goal(g.user["id"], period, target_minutes, is_public)
-        flash(("週" if period == "week" else "月") + "の目標を保存しました", "info")
+        db.set_progress(g.user["id"], period, achievement_rate, is_public)
+        flash(("週" if period == "week" else "月") + "の進捗を保存しました", "info")
         return redirect(url_for("goals_view"))
 
     progress = db.compute_progress(g.user["id"])
@@ -579,6 +716,144 @@ def goals_delete(period):
         db.delete_goal(g.user["id"], period)
         flash("目標を削除しました", "info")
     return redirect(url_for("goals_view"))
+
+
+# ---------------------------------------------------------------------------
+# 名前付き目標の進捗
+# ---------------------------------------------------------------------------
+
+def _parse_progress_goal_form(form):
+    title = form.get("title", "").strip()
+    description = form.get("description", "").strip()
+    deadline = form.get("deadline", "").strip()
+    is_public = form.get("is_public") == "1"
+    errors = []
+    if not title:
+        errors.append("目標名を入力してください")
+    if deadline:
+        try:
+            date.fromisoformat(deadline)
+        except ValueError:
+            errors.append("期限は正しい日付で入力してください")
+    return title, description, deadline or None, is_public, errors
+
+
+@app.route("/progress")
+@login_required
+def progress_goals_view():
+    period = request.args.get("period", "month")
+    if period not in ("week", "month"):
+        period = "month"
+    auto_progress = db.get_auto_category_progress(g.user["id"], period)
+    return render_template("progress_list.html", goals=db.get_progress_goals(g.user["id"]), auto_progress=auto_progress, period=period)
+
+
+@app.route("/progress/auto/<period>/<category_key>")
+@login_required
+def auto_progress_detail(period, category_key):
+    if period not in ("week", "month"):
+        return redirect(url_for("progress_goals_view"))
+    card = db.get_auto_category_detail(g.user["id"], period, category_key)
+    if card is None:
+        flash("この期間のカテゴリ予定はありません", "error")
+        return redirect(url_for("progress_goals_view", period=period))
+    return render_template("progress_auto_detail.html", card=card, period=period)
+
+
+@app.route("/history")
+@login_required
+def activity_history_view():
+    return render_template("activity_history.html", items=db.get_activity_logs(g.user["id"]))
+
+
+@app.route("/progress/new", methods=["GET", "POST"])
+@login_required
+def progress_goal_new():
+    if request.method == "POST":
+        title, description, deadline, is_public, errors = _parse_progress_goal_form(request.form)
+        try:
+            rate = int(request.form.get("progress_rate", "0"))
+            if not 0 <= rate <= 100:
+                raise ValueError
+        except ValueError:
+            errors.append("初期進捗は0〜100の整数で入力してください")
+            rate = 0
+        if errors:
+            for error in errors:
+                flash(error, "error")
+            return render_template("progress_form.html", mode="new", form=request.form, goal_id=None)
+        goal_id = db.create_progress_goal(g.user["id"], title, description, rate, deadline, is_public)
+        flash("目標を登録しました", "info")
+        return redirect(url_for("progress_goal_detail", goal_id=goal_id))
+    return render_template("progress_form.html", mode="new", form={"title": "", "description": "", "deadline": "", "progress_rate": 0, "is_public": False}, goal_id=None)
+
+
+@app.route("/progress/<int:goal_id>")
+@login_required
+def progress_goal_detail(goal_id):
+    goal = db.get_progress_goal_with_auto_progress(goal_id, g.user["id"])
+    if goal is None:
+        flash("目標が見つかりません", "error")
+        return redirect(url_for("progress_goals_view"))
+    return render_template("progress_detail.html", goal=goal, updates=db.get_progress_updates(goal_id, g.user["id"]))
+
+
+@app.route("/progress/<int:goal_id>/update", methods=["POST"])
+@login_required
+def progress_goal_update_rate(goal_id):
+    try:
+        rate = int(request.form.get("progress_rate", ""))
+        if not 0 <= rate <= 100:
+            raise ValueError
+    except ValueError:
+        flash("進捗は0〜100の整数で入力してください", "error")
+        return redirect(url_for("progress_goal_detail", goal_id=goal_id))
+    if not db.update_progress_rate(goal_id, g.user["id"], rate, request.form.get("note", "").strip()):
+        flash("目標が見つかりません", "error")
+        return redirect(url_for("progress_goals_view"))
+    flash("進捗を登録しました", "info")
+    return redirect(url_for("progress_goal_detail", goal_id=goal_id))
+
+
+@app.route("/progress/<int:goal_id>/edit", methods=["GET", "POST"])
+@login_required
+def progress_goal_edit(goal_id):
+    goal = db.get_progress_goal(goal_id, g.user["id"])
+    if goal is None:
+        flash("目標が見つかりません", "error")
+        return redirect(url_for("progress_goals_view"))
+    if request.method == "POST":
+        title, description, deadline, is_public, errors = _parse_progress_goal_form(request.form)
+        if errors:
+            for error in errors:
+                flash(error, "error")
+            return render_template("progress_form.html", mode="edit", form=request.form, goal_id=goal_id)
+        db.update_progress_goal(goal_id, g.user["id"], title, description, deadline, is_public)
+        flash("目標を更新しました", "info")
+        return redirect(url_for("progress_goal_detail", goal_id=goal_id))
+    return render_template("progress_form.html", mode="edit", form=goal, goal_id=goal_id)
+
+
+@app.route("/progress/<int:goal_id>/delete", methods=["POST"])
+@login_required
+def progress_goal_delete(goal_id):
+    if db.delete_progress_goal(goal_id, g.user["id"]):
+        flash("目標を削除しました", "info")
+    else:
+        flash("目標が見つかりません", "error")
+    return redirect(url_for("progress_goals_view"))
+
+
+@app.route("/progress/friend/<int:user_id>")
+@login_required
+def friend_progress_goals_view(user_id):
+    if user_id == g.user["id"]:
+        return redirect(url_for("progress_goals_view"))
+    friend = db.get_user_by_id(user_id)
+    if friend is None or not db.are_friends(g.user["id"], user_id):
+        flash("フレンドの公開目標のみ閲覧できます", "error")
+        return redirect(url_for("friends_view"))
+    return render_template("friend_progress.html", friend=friend, goals=db.get_public_progress_goals(user_id))
 
 
 # ---------------------------------------------------------------------------
@@ -613,22 +888,6 @@ def reports_view():
 
 
 # ---------------------------------------------------------------------------
-# 活動フィード
-# ---------------------------------------------------------------------------
-
-@app.route("/feed")
-@login_required
-def feed_view():
-    items = db.get_feed(g.user["id"])
-    for item in items:
-        s = db.parse_dt(item["start_at"])
-        e = db.parse_dt(item["end_at"])
-        item["duration_label"] = cu.format_duration((e - s).total_seconds())
-    db.mark_feed_read(g.user["id"])
-    return render_template("feed.html", items=items)
-
-
-# ---------------------------------------------------------------------------
 # アプリ内通知
 # ---------------------------------------------------------------------------
 
@@ -637,7 +896,7 @@ def feed_view():
 def notifications_view():
     items = db.get_notifications(g.user["id"])
     db.mark_notifications_read(g.user["id"])
-    return render_template("notifications.html", items=items)
+    return render_template("notifications.html", items=items, received=db.get_received_requests(g.user["id"]))
 
 
 # ---------------------------------------------------------------------------
@@ -653,20 +912,18 @@ def friends_view():
     return render_template(
         "friends.html",
         friends=friends,
-        received=db.get_received_requests(g.user["id"]),
-        sent=db.get_sent_requests(g.user["id"]),
     )
 
 
 @app.route("/friends/request", methods=["POST"])
 @login_required
 def friends_request():
-    email = request.form.get("email", "").strip()
-    if not email:
-        flash("メールアドレスを入力してください", "error")
+    friend_code = request.form.get("friend_code", "").strip().upper()
+    if len(friend_code) != db.FRIEND_CODE_LENGTH:
+        flash("8桁のフレンドコードを入力してください", "error")
         return redirect(url_for("friends_view"))
 
-    result, addressee = db.send_friend_request(g.user["id"], email)
+    result, addressee = db.send_friend_request(g.user["id"], friend_code)
     messages = {
         "ok": ("申請を送りました", "info"),
         "not_found": ("該当するユーザーが見つかりません", "error"),
@@ -716,9 +973,14 @@ def friends_accept(friendship_id):
 @app.route("/friends/<int:friendship_id>/decline", methods=["POST"])
 @login_required
 def friends_decline(friendship_id):
-    ok, _ = db.respond_to_request(friendship_id, g.user["id"], accept=False)
+    ok, requester_id = db.respond_to_request(friendship_id, g.user["id"], accept=False)
     if ok:
         flash("申請を拒否しました", "info")
+        if requester_id:
+            db.create_notification(
+                requester_id, "friend_decline",
+                f"{g.user['display_name']} さんへのフレンド申請は承認されませんでした", url_for("friends_view"),
+            )
     else:
         flash("処理できませんでした", "error")
     return redirect(url_for("friends_view"))
@@ -734,12 +996,10 @@ def friends_remove(friendship_id):
     return redirect(url_for("friends_view"))
 
 
-@app.route("/friends/select-calendar")
-@login_required
-def select_friend_calendar():
-    return render_template("select_friend.html", friends=db.get_friends(g.user["id"]))
-
-
 if __name__ == "__main__":
     db.init_db()
-    app.run(debug=True, port=5000)
+    app.run(
+        host=os.environ.get("HOST", "0.0.0.0"),
+        port=int(os.environ.get("PORT", "5000")),
+        debug=env_flag("FLASK_DEBUG"),
+    )

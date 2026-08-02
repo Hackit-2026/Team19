@@ -2,40 +2,117 @@
 {% block title %}タイマー - タイムラインカレンダー{% endblock %}
 {% block content %}
 <div class="form-window timer-window">
-  <h1>タイマー</h1>
+  <h1 class="timer-heading">タイマー</h1>
 
   {% if active %}
-    <p class="timer-status">「{{ active.task }}」を計測中…</p>
+    <p class="timer-selected-task">{{ active.task }}</p>
     <div id="elapsed" class="elapsed-display">00:00:00</div>
-    <form method="post" action="{{ url_for('timer_stop') }}">
-      <button type="submit" class="btn btn-primary btn-lg">■ 停止</button>
+    <form class="timer-form" method="post" action="{{ url_for('timer_stop') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="timer-action-button timer-stop-button">停止</button>
     </form>
-    <div class="demo-note">
-      このページを閉じたり再読み込みしても、計測開始時刻はサーバー側(active_timersテーブル)に保存されているので、
-      再度開けば経過時間が正しく復元されます。
-    </div>
+    <p class="timer-help">ページを閉じても計測は続きます</p>
     <script>
-      var startedAt = new Date("{{ active.started_at.replace(' ', 'T') }}");
-      var el = document.getElementById('elapsed');
-      function tick() {
-        var diff = Math.max(0, Math.floor((new Date() - startedAt) / 1000));
-        var h = String(Math.floor(diff / 3600)).padStart(2, '0');
-        var m = String(Math.floor((diff % 3600) / 60)).padStart(2, '0');
-        var s = String(diff % 60).padStart(2, '0');
-        el.textContent = h + ':' + m + ':' + s;
-      }
-      tick();
-      setInterval(tick, 1000);
+      (() => {
+        const startedAt = new Date("{{ active.started_at.replace(' ', 'T') }}");
+        const elapsed = document.getElementById("elapsed");
+
+        function tick() {
+          const diff = Math.max(0, Math.floor((new Date() - startedAt) / 1000));
+          const hours = String(Math.floor(diff / 3600)).padStart(2, "0");
+          const minutes = String(Math.floor((diff % 3600) / 60)).padStart(2, "0");
+          const seconds = String(diff % 60).padStart(2, "0");
+          elapsed.textContent = `${hours}:${minutes}:${seconds}`;
+        }
+
+        tick();
+        setInterval(tick, 1000);
+      })();
     </script>
   {% else %}
-    <form method="post" action="{{ url_for('timer_start') }}">
-      <label class="field-label">内容(プリセットから選択、または自由入力)</label>
-      <input class="field" type="text" name="task" list="task-presets" required autofocus>
-      <datalist id="task-presets">
-        {% for p in presets %}<option value="{{ p }}">{% endfor %}
-      </datalist>
-      <button type="submit" class="btn btn-primary btn-lg">▶ 開始</button>
+    <form class="timer-form" method="post" action="{{ url_for('timer_start') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+      <div class="timer-presets" aria-label="内容のプリセット">
+        {% for preset in presets %}
+          <button
+            type="button"
+            class="timer-preset"
+            data-task-preset="{{ preset }}"
+            aria-pressed="false"
+          >{{ preset }}</button>
+        {% endfor %}
+      </div>
+
+      <label class="visually-hidden" for="timer-task">タイマーの内容</label>
+      <input
+        id="timer-task"
+        class="timer-task-input"
+        type="text"
+        name="task"
+        placeholder="自由入力..."
+        maxlength="100"
+        autocomplete="off"
+      >
+
+      {% if incomplete_events %}
+      <label class="field-label" for="timer-event">予定と連携する(任意)</label>
+      <select id="timer-event" class="field" name="event_id">
+        <option value="">予定を選ばない</option>
+        {% for event in incomplete_events %}
+          <option value="{{ event.id }}" data-title="{{ event.title }}">{{ event.start_at[:16] }} {{ event.title }}</option>
+        {% endfor %}
+      </select>
+      {% endif %}
+
+      <p id="selected-task" class="timer-selected-task" aria-live="polite">内容を選択</p>
+      <div class="elapsed-display timer-idle-time" aria-label="未計測">00:00:00</div>
+      <button type="submit" class="timer-action-button timer-start-button">開始</button>
+      <button id="timer-reset" type="button" class="timer-reset-button">リセット</button>
     </form>
+
+    <script>
+      (() => {
+        const input = document.getElementById("timer-task");
+        const selectedTask = document.getElementById("selected-task");
+        const presetButtons = [...document.querySelectorAll("[data-task-preset]")];
+        const resetButton = document.getElementById("timer-reset");
+        const eventSelect = document.getElementById("timer-event");
+
+        function updateSelection(value) {
+          const task = value.trim();
+          selectedTask.textContent = task || "内容を選択";
+          presetButtons.forEach((button) => {
+            const selected = button.dataset.taskPreset === task;
+            button.classList.toggle("is-selected", selected);
+            button.setAttribute("aria-pressed", String(selected));
+          });
+        }
+
+        presetButtons.forEach((button) => {
+          button.addEventListener("click", () => {
+            input.value = button.dataset.taskPreset;
+            updateSelection(input.value);
+          });
+        });
+
+        input.addEventListener("input", () => updateSelection(input.value));
+        if (eventSelect) {
+          eventSelect.addEventListener("change", () => {
+            const option = eventSelect.options[eventSelect.selectedIndex];
+            if (option.value) {
+              input.value = option.dataset.title;
+              updateSelection(input.value);
+            }
+          });
+        }
+        resetButton.addEventListener("click", () => {
+          input.value = "";
+          updateSelection("");
+          input.focus();
+        });
+      })();
+    </script>
   {% endif %}
 </div>
 {% endblock %}

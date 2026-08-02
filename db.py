@@ -3,7 +3,7 @@ db.py
 -----
 フル機能版Webアプリのデータ層。SQLite + 標準sqlite3モジュールのみを使用する
 (要件定義フェーズで作成した「02_データベース設計書.md」のテーブル定義をベースに、
-Phase2で計画していた機能(目標共有・活動フィード・メール認証等)も含めて実装したもの)。
+Phase2で計画していた機能(目標共有・メール認証等)も含めて実装したもの)。
 
 日時はすべて 'YYYY-MM-DD HH:MM:SS' 形式のTEXTとして保存する(文字列比較で
 時系列ソートできる形式)。デモのため、タイムゾーンは扱わずローカル時刻のみ。
@@ -18,16 +18,24 @@ import secrets
 import sqlite3
 from datetime import datetime, timedelta
 
+from nanoid import generate
 from werkzeug.security import generate_password_hash, check_password_hash
 
-DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo.db")
+DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo.db")
+DB_PATH = os.path.abspath(os.environ.get("DATABASE_PATH", DEFAULT_DB_PATH))
 DT_FMT = "%Y-%m-%d %H:%M:%S"
 
-TASK_PRESETS = ["勉強", "筋トレ", "作業", "読書"]
-CATEGORY_PRESETS = ["学習", "仕事", "運動", "趣味", "その他"]
+TASK_PRESETS = ["作業", "勉強", "休憩", "運動", "読書"]
+CATEGORY_PRESETS = ["筋トレ", "勉強", "作業", "授業", "アルバイト", "休憩"]
+EVENT_COLOR_OPTIONS = {
+    "#3B82F6", "#22C55E", "#EF4444", "#F97316",
+    "#EAB308", "#8B5CF6", "#EC4899", "#64748B",
+}
 
 EMAIL_VERIFICATION_TTL_HOURS = 24
 PASSWORD_RESET_TTL_MINUTES = 60
+FRIEND_CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ"
+FRIEND_CODE_LENGTH = 8
 
 
 def now_str():
@@ -43,9 +51,11 @@ def parse_dt(s):
 
 
 def get_connection():
-    conn = sqlite3.connect(DB_PATH)
+    os.makedirs(os.path.dirname(DB_PATH), exist_ok=True)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 
@@ -60,12 +70,14 @@ def init_db(reset=False):
         os.remove(DB_PATH)
 
     conn = get_connection()
+    conn.execute("PRAGMA journal_mode = WAL")
     conn.executescript(
         """
         CREATE TABLE IF NOT EXISTS users (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             display_name TEXT NOT NULL,
             email TEXT NOT NULL UNIQUE,
+            friend_code TEXT NOT NULL UNIQUE,
             password_hash TEXT NOT NULL,
             email_verified BOOLEAN NOT NULL DEFAULT 1,
             created_at TEXT NOT NULL
@@ -124,16 +136,37 @@ def init_db(reset=False):
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
             period TEXT NOT NULL CHECK (period IN ('week', 'month')),
             target_minutes INTEGER NOT NULL,
+            manual_rate INTEGER,
             is_public BOOLEAN NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL,
             UNIQUE (user_id, period)
         );
 
-        CREATE TABLE IF NOT EXISTS feed_reads (
-            user_id INTEGER PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
-            last_read_at TEXT NOT NULL
+        CREATE TABLE IF NOT EXISTS progress_goals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            description TEXT,
+            progress_rate INTEGER NOT NULL DEFAULT 0 CHECK (progress_rate BETWEEN 0 AND 100),
+            deadline TEXT,
+            is_public BOOLEAN NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         );
+
+        CREATE INDEX IF NOT EXISTS idx_progress_goals_user ON progress_goals(user_id);
+
+        CREATE TABLE IF NOT EXISTS progress_updates (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            goal_id INTEGER NOT NULL REFERENCES progress_goals(id) ON DELETE CASCADE,
+            previous_rate INTEGER NOT NULL,
+            new_rate INTEGER NOT NULL,
+            note TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_progress_updates_goal ON progress_updates(goal_id, created_at);
 
         CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -144,6 +177,16 @@ def init_db(reset=False):
             is_read BOOLEAN NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS activity_logs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            event_id INTEGER REFERENCES events(id) ON DELETE SET NULL,
+            kind TEXT NOT NULL,
+            message TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_activity_logs_user_created ON activity_logs(user_id, created_at);
 
         CREATE TABLE IF NOT EXISTS outbox (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -156,7 +199,26 @@ def init_db(reset=False):
     )
     # 既存DBに対する後方互換マイグレーション(列追加)
     _ensure_column(conn, "events", "category", "TEXT")
-    _ensure_column(conn, "events", "visibility", "TEXT NOT NULL DEFAULT 'public'")
+    _ensure_column(conn, "events", "visibility", "TEXT NOT NULL DEFAULT 'private'")
+    _ensure_column(conn, "events", "custom_color", "TEXT")
+    _ensure_column(conn, "events", "is_completed", "BOOLEAN NOT NULL DEFAULT 0")
+    _ensure_column(conn, "events", "actual_minutes", "INTEGER")
+    _ensure_column(conn, "events", "completed_at", "TEXT")
+    _ensure_column(conn, "events", "progress_goal_id", "INTEGER REFERENCES progress_goals(id) ON DELETE SET NULL")
+    _ensure_column(conn, "active_timers", "event_id", "INTEGER REFERENCES events(id) ON DELETE SET NULL")
+    _ensure_column(conn, "goals", "manual_rate", "INTEGER")
+    _ensure_column(conn, "users", "friend_code", "TEXT")
+    users_without_code = conn.execute(
+        "SELECT id FROM users WHERE friend_code IS NULL OR friend_code = ''"
+    ).fetchall()
+    for user in users_without_code:
+        conn.execute(
+            "UPDATE users SET friend_code = ? WHERE id = ?",
+            (_generate_unique_friend_code(conn), user["id"]),
+        )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_users_friend_code ON users(friend_code)"
+    )
     conn.commit()
     conn.close()
 
@@ -165,13 +227,25 @@ def init_db(reset=False):
 # users
 # ---------------------------------------------------------------------------
 
+def _generate_unique_friend_code(conn):
+    """Nano IDで8文字の、DB内で重複しないフレンドコードを生成する。"""
+    for _ in range(20):
+        code = generate(FRIEND_CODE_ALPHABET, FRIEND_CODE_LENGTH)
+        exists = conn.execute(
+            "SELECT 1 FROM users WHERE friend_code = ?", (code,)
+        ).fetchone()
+        if exists is None:
+            return code
+    raise RuntimeError("failed to generate a unique friend code")
+
 def create_user(display_name, email, password, email_verified=True):
     conn = get_connection()
     try:
+        friend_code = _generate_unique_friend_code(conn)
         cur = conn.execute(
-            "INSERT INTO users (display_name, email, password_hash, email_verified, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            (display_name, email.strip().lower(), generate_password_hash(password), 1 if email_verified else 0, now_str()),
+            "INSERT INTO users (display_name, email, friend_code, password_hash, email_verified, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?)",
+            (display_name, email.strip().lower(), friend_code, generate_password_hash(password), 1 if email_verified else 0, now_str()),
         )
         conn.commit()
         return cur.lastrowid
@@ -185,6 +259,18 @@ def get_user_by_email(email):
     conn = get_connection()
     try:
         row = conn.execute("SELECT * FROM users WHERE email = ?", (email.strip().lower(),)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_user_by_friend_code(friend_code):
+    conn = get_connection()
+    try:
+        normalized = str(friend_code or "").strip().upper()
+        row = conn.execute(
+            "SELECT * FROM users WHERE friend_code = ?", (normalized,)
+        ).fetchone()
         return dict(row) if row else None
     finally:
         conn.close()
@@ -419,14 +505,16 @@ def find_conflicts(user_id, start_at, end_at, exclude_id=None):
         conn.close()
 
 
-def add_event(user_id, title, start_at, end_at, memo="", source="manual", category=None, visibility="public"):
+def add_event(user_id, title, start_at, end_at, memo="", source="manual", category=None, visibility="private", custom_color=None, progress_goal_id=None):
     conn = get_connection()
     try:
+        visibility = "private"
+        custom_color = custom_color.upper() if custom_color and custom_color.upper() in EVENT_COLOR_OPTIONS else None
         ts = now_str()
         cur = conn.execute(
-            "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-            (user_id, title, to_str(start_at), to_str(end_at), memo, source, category or None, visibility, ts, ts),
+            "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, custom_color, progress_goal_id, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, title, to_str(start_at), to_str(end_at), memo, source, category or None, visibility, custom_color, progress_goal_id, ts, ts),
         )
         conn.commit()
         return cur.lastrowid
@@ -443,16 +531,148 @@ def get_event(event_id):
         conn.close()
 
 
-def update_event(event_id, title, start_at, end_at, memo="", category=None, visibility="public"):
+def update_event(event_id, title, start_at, end_at, memo="", category=None, visibility="private", custom_color=None, progress_goal_id=None):
     conn = get_connection()
     try:
+        visibility = "private"
+        custom_color = custom_color.upper() if custom_color and custom_color.upper() in EVENT_COLOR_OPTIONS else None
         conn.execute(
-            "UPDATE events SET title = ?, start_at = ?, end_at = ?, memo = ?, category = ?, visibility = ?, updated_at = ? WHERE id = ?",
-            (title, to_str(start_at), to_str(end_at), memo, category or None, visibility, now_str(), event_id),
+            "UPDATE events SET title = ?, start_at = ?, end_at = ?, memo = ?, category = ?, visibility = ?, custom_color = ?, progress_goal_id = ?, updated_at = ? WHERE id = ?",
+            (title, to_str(start_at), to_str(end_at), memo, category or None, visibility, custom_color, progress_goal_id, now_str(), event_id),
         )
         conn.commit()
     finally:
         conn.close()
+
+
+def event_duration_minutes(event):
+    return max(0, int((parse_dt(event["end_at"]) - parse_dt(event["start_at"])).total_seconds() // 60))
+
+
+def complete_event(event_id, user_id, actual_minutes):
+    if actual_minutes is None or int(actual_minutes) < 0:
+        return False
+    conn = get_connection()
+    try:
+        event = conn.execute("SELECT * FROM events WHERE id = ? AND user_id = ?", (event_id, user_id)).fetchone()
+        if event is None:
+            return False
+        actual_minutes = int(actual_minutes)
+        ts = now_str()
+        conn.execute(
+            "UPDATE events SET is_completed = 1, actual_minutes = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+            (actual_minutes, ts, ts, event_id),
+        )
+        if not event["is_completed"]:
+            conn.execute(
+                "INSERT INTO activity_logs (user_id, event_id, kind, message, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, event_id, "event_completed", f"「{event['title']}」を{actual_minutes}分実施しました", ts),
+            )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def uncomplete_event(event_id, user_id):
+    conn = get_connection()
+    try:
+        event = conn.execute("SELECT * FROM events WHERE id = ? AND user_id = ?", (event_id, user_id)).fetchone()
+        if event is None:
+            return False
+        ts = now_str()
+        conn.execute(
+            "UPDATE events SET is_completed = 0, actual_minutes = NULL, completed_at = NULL, updated_at = ? WHERE id = ?",
+            (ts, event_id),
+        )
+        if event["is_completed"]:
+            conn.execute(
+                "INSERT INTO activity_logs (user_id, event_id, kind, message, created_at) VALUES (?, ?, ?, ?, ?)",
+                (user_id, event_id, "event_uncompleted", f"「{event['title']}」の完了を取り消しました", ts),
+            )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def get_activity_logs(user_id, limit=100):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM activity_logs WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def _progress_category(category):
+    value = (category or "").strip().lower()
+    if any(word in value for word in ("筋トレ", "運動", "workout", "training")):
+        return "workout", "筋トレ"
+    if any(word in value for word in ("勉強", "学習", "study")):
+        return "study", "勉強"
+    if any(word in value for word in ("作業", "開発", "仕事", "work", "development")):
+        return "work", "作業"
+    if any(word in value for word in ("授業", "講義", "class", "lecture")):
+        return "class", "授業"
+    if any(word in value for word in ("アルバイト", "バイト", "parttime", "part-time")):
+        return "parttime", "アルバイト"
+    if any(word in value for word in ("休憩", "休み", "break", "rest")):
+        return "break", "休憩"
+    return None, None
+
+
+def _progress_summary(events):
+    planned = sum(event_duration_minutes(event) for event in events)
+    actual = sum(int(event["actual_minutes"] or 0) for event in events if event["is_completed"])
+    rate = round(actual / planned * 100, 1) if planned else 0
+    return {
+        "planned_minutes": planned,
+        "actual_minutes": actual,
+        "remaining_minutes": max(0, planned - actual),
+        "over_minutes": max(0, actual - planned),
+        "rate": rate,
+        "bar_rate": min(100, rate),
+        "completed_count": sum(1 for event in events if event["is_completed"]),
+        "event_count": len(events),
+    }
+
+
+def get_auto_category_progress(user_id, period, ref_date=None):
+    from datetime import time as dtime
+    ref_date = ref_date or datetime.now().date()
+    if period == "week":
+        start_date = ref_date - timedelta(days=ref_date.weekday())
+        end_date = start_date + timedelta(days=7)
+    else:
+        start_date = ref_date.replace(day=1)
+        end_date = (start_date.replace(day=28) + timedelta(days=4)).replace(day=1)
+    events = get_events_range(user_id, datetime.combine(start_date, dtime.min), datetime.combine(end_date, dtime.min))
+    groups = {}
+    for event in events:
+        key, label = _progress_category(event.get("category"))
+        if key is None:
+            continue
+        groups.setdefault(key, {"key": key, "label": label, "events": []})["events"].append(event)
+    cards = []
+    for group in groups.values():
+        for event in group["events"]:
+            event["planned_minutes"] = event_duration_minutes(event)
+        group.update(_progress_summary(group["events"]))
+        cards.append(group)
+    cards.sort(key=lambda card: card["label"])
+    return {"period": period, "start_date": start_date, "end_date": end_date, "cards": cards}
+
+
+def get_auto_category_detail(user_id, period, category_key, ref_date=None):
+    summary = get_auto_category_progress(user_id, period, ref_date)
+    for card in summary["cards"]:
+        if card["key"] == category_key:
+            return card
+    return None
 
 
 def delete_event(event_id):
@@ -500,12 +720,24 @@ def get_active_timer(user_id):
         conn.close()
 
 
-def start_timer(user_id, task):
+def get_incomplete_events(user_id, limit=100):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM events WHERE user_id = ? AND is_completed = 0 ORDER BY start_at DESC LIMIT ?",
+            (user_id, limit),
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def start_timer(user_id, task, event_id=None):
     conn = get_connection()
     try:
         conn.execute(
-            "INSERT INTO active_timers (user_id, task, started_at) VALUES (?, ?, ?)",
-            (user_id, task, now_str()),
+            "INSERT INTO active_timers (user_id, task, started_at, event_id) VALUES (?, ?, ?, ?)",
+            (user_id, task, now_str(), event_id),
         )
         conn.commit()
     finally:
@@ -525,14 +757,33 @@ def stop_timer(user_id):
     conn = get_connection()
     try:
         ts = now_str()
-        cur = conn.execute(
-            "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, created_at, updated_at) "
-            "VALUES (?, ?, ?, ?, '', 'timer', NULL, 'public', ?, ?)",
-            (user_id, active["task"], to_str(start_at), to_str(end_at), ts, ts),
+        actual_minutes = max(1, int((end_at - start_at).total_seconds() // 60))
+        if active.get("event_id"):
+            event = conn.execute(
+                "SELECT id FROM events WHERE id = ? AND user_id = ?", (active["event_id"], user_id)
+            ).fetchone()
+        else:
+            event = None
+        if event:
+            cur = conn.execute(
+                "UPDATE events SET is_completed = 1, actual_minutes = ?, completed_at = ?, updated_at = ? WHERE id = ?",
+                (actual_minutes, ts, ts, active["event_id"]),
+            )
+            event_id = active["event_id"]
+        else:
+            cur = conn.execute(
+                "INSERT INTO events (user_id, title, start_at, end_at, memo, source, category, visibility, is_completed, actual_minutes, completed_at, created_at, updated_at) "
+                "VALUES (?, ?, ?, ?, '', 'timer', NULL, 'private', 1, ?, ?, ?, ?)",
+                (user_id, active["task"], to_str(start_at), to_str(end_at), actual_minutes, ts, ts, ts),
+            )
+            event_id = cur.lastrowid
+        conn.execute(
+            "INSERT INTO activity_logs (user_id, event_id, kind, message, created_at) VALUES (?, ?, ?, ?, ?)",
+            (user_id, event_id, "timer_stopped", f"「{active['task']}」をタイマーで{actual_minutes}分実施しました", ts),
         )
         conn.execute("DELETE FROM active_timers WHERE user_id = ?", (user_id,))
         conn.commit()
-        return cur.lastrowid
+        return event_id
     finally:
         conn.close()
 
@@ -584,6 +835,34 @@ def set_goal(user_id, period, target_minutes, is_public):
         conn.close()
 
 
+def set_progress(user_id, period, achievement_rate, is_public):
+    """週・月の手動達成率と公開設定を保存する。
+
+    target_minutes は旧UIとの後方互換のため残し、新規行ではダミー値1を入れる。
+    実際にかけた時間は events から自動集計する。
+    """
+    conn = get_connection()
+    try:
+        existing = conn.execute(
+            "SELECT id FROM goals WHERE user_id = ? AND period = ?", (user_id, period)
+        ).fetchone()
+        ts = now_str()
+        if existing:
+            conn.execute(
+                "UPDATE goals SET manual_rate = ?, is_public = ?, updated_at = ? WHERE id = ?",
+                (achievement_rate, 1 if is_public else 0, ts, existing["id"]),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO goals (user_id, period, target_minutes, manual_rate, is_public, created_at, updated_at) "
+                "VALUES (?, ?, 1, ?, ?, ?, ?)",
+                (user_id, period, achievement_rate, 1 if is_public else 0, ts, ts),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 def delete_goal(user_id, period):
     conn = get_connection()
     try:
@@ -609,7 +888,7 @@ def _period_bounds(period, today=None):
 
 
 def compute_progress(user_id):
-    """今日・週・月の合計時間(分)と、目標がある場合は達成率を返す"""
+    """今日・週・月の記録時間と、手動または旧目標由来の達成率を返す"""
     from datetime import time as dtime
 
     today = datetime.now().date()
@@ -625,12 +904,15 @@ def compute_progress(user_id):
         ) // 60
         goal = get_goal(user_id, period)
         target = goal["target_minutes"] if goal else None
-        rate = round(total_minutes / target * 100) if target else None
+        manual_rate = goal.get("manual_rate") if goal else None
+        rate = manual_rate if manual_rate is not None else (round(total_minutes / target * 100) if target else 0)
         result[period] = {
             "total_minutes": total_minutes,
             "target_minutes": target,
             "achievement_rate": rate,
             "is_public": bool(goal["is_public"]) if goal else False,
+            "has_progress": goal is not None,
+            "is_manual": manual_rate is not None,
         }
     return result
 
@@ -641,7 +923,7 @@ def get_friend_public_progress(user_id):
     public = {}
     for period in ("week", "month"):
         info = full[period]
-        if info["is_public"] and info["target_minutes"]:
+        if info["is_public"] and info["has_progress"]:
             public[period] = {
                 "total_minutes": info["total_minutes"],
                 "target_minutes": info["target_minutes"],
@@ -651,59 +933,156 @@ def get_friend_public_progress(user_id):
 
 
 # ---------------------------------------------------------------------------
-# 活動フィード
+# named progress goals (名前付き目標)
 # ---------------------------------------------------------------------------
 
-def get_feed(user_id, limit=50):
+def create_progress_goal(user_id, title, description="", progress_rate=0, deadline=None, is_public=False):
+    if not 0 <= int(progress_rate) <= 100:
+        raise ValueError("progress_rate must be between 0 and 100")
+    conn = get_connection()
+    try:
+        ts = now_str()
+        cur = conn.execute(
+            "INSERT INTO progress_goals (user_id, title, description, progress_rate, deadline, is_public, created_at, updated_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (user_id, title, description or None, int(progress_rate), deadline, 1 if is_public else 0, ts, ts),
+        )
+        conn.commit()
+        return cur.lastrowid
+    finally:
+        conn.close()
+
+
+def get_progress_goal(goal_id, user_id=None):
+    conn = get_connection()
+    try:
+        sql = "SELECT * FROM progress_goals WHERE id = ?"
+        params = [goal_id]
+        if user_id is not None:
+            sql += " AND user_id = ?"
+            params.append(user_id)
+        row = conn.execute(sql, params).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+def get_progress_goals(user_id):
     conn = get_connection()
     try:
         rows = conn.execute(
-            """
-            SELECT e.id, e.user_id, u.display_name, e.title, e.start_at, e.end_at, e.created_at
-            FROM events e
-            JOIN users u ON u.id = e.user_id
-            JOIN friendships f
-              ON (f.requester_id = ? AND f.addressee_id = e.user_id)
-              OR (f.addressee_id = ? AND f.requester_id = e.user_id)
-            WHERE f.status = 'accepted' AND e.visibility = 'public'
-            ORDER BY e.created_at DESC
-            LIMIT ?
-            """,
-            (user_id, user_id, limit),
+            "SELECT * FROM progress_goals WHERE user_id = ? "
+            "ORDER BY CASE WHEN progress_rate >= 100 THEN 1 ELSE 0 END, updated_at DESC, id DESC",
+            (user_id,),
         ).fetchall()
-        return [dict(r) for r in rows]
+        return [_with_goal_auto_progress(dict(row)) for row in rows]
     finally:
         conn.close()
 
 
-def get_feed_last_read(user_id):
+def get_public_progress_goals(user_id):
     conn = get_connection()
     try:
-        row = conn.execute("SELECT last_read_at FROM feed_reads WHERE user_id = ?", (user_id,)).fetchone()
-        return row["last_read_at"] if row else None
+        rows = conn.execute(
+            "SELECT id, user_id, title, progress_rate, deadline, updated_at "
+            "FROM progress_goals WHERE user_id = ? AND is_public = 1 "
+            "ORDER BY CASE WHEN progress_rate >= 100 THEN 1 ELSE 0 END, updated_at DESC, id DESC",
+            (user_id,),
+        ).fetchall()
+        return [_with_goal_auto_progress(dict(row)) for row in rows]
     finally:
         conn.close()
 
 
-def get_feed_unread_count(user_id):
-    last_read = get_feed_last_read(user_id)
-    feed = get_feed(user_id, limit=200)
-    if last_read is None:
-        return len(feed)
-    return sum(1 for item in feed if item["created_at"] > last_read)
-
-
-def mark_feed_read(user_id):
+def _with_goal_auto_progress(goal):
     conn = get_connection()
     try:
-        existing = conn.execute("SELECT user_id FROM feed_reads WHERE user_id = ?", (user_id,)).fetchone()
-        if existing:
-            conn.execute("UPDATE feed_reads SET last_read_at = ? WHERE user_id = ?", (now_str(), user_id))
-        else:
-            conn.execute(
-                "INSERT INTO feed_reads (user_id, last_read_at) VALUES (?, ?)", (user_id, now_str())
-            )
+        rows = conn.execute(
+            "SELECT * FROM events WHERE user_id = ? AND progress_goal_id = ? ORDER BY start_at",
+            (goal["user_id"], goal["id"]),
+        ).fetchall()
+        events = [dict(row) for row in rows]
+    finally:
+        conn.close()
+    summary = _progress_summary(events)
+    goal["auto_progress"] = summary
+    if summary["event_count"]:
+        goal["progress_rate"] = summary["rate"]
+        completed_times = [event["completed_at"] for event in events if event.get("completed_at")]
+        if completed_times:
+            goal["updated_at"] = max([goal["updated_at"]] + completed_times)
+    return goal
+
+
+def get_progress_goal_with_auto_progress(goal_id, user_id):
+    goal = get_progress_goal(goal_id, user_id)
+    return _with_goal_auto_progress(goal) if goal else None
+
+
+def update_progress_goal(goal_id, user_id, title, description, deadline, is_public):
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE progress_goals SET title = ?, description = ?, deadline = ?, is_public = ?, updated_at = ? "
+            "WHERE id = ? AND user_id = ?",
+            (title, description or None, deadline, 1 if is_public else 0, now_str(), goal_id, user_id),
+        )
         conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def update_progress_rate(goal_id, user_id, new_rate, note=""):
+    if not 0 <= int(new_rate) <= 100:
+        raise ValueError("progress_rate must be between 0 and 100")
+    conn = get_connection()
+    try:
+        goal = conn.execute(
+            "SELECT progress_rate FROM progress_goals WHERE id = ? AND user_id = ?", (goal_id, user_id)
+        ).fetchone()
+        if goal is None:
+            return False
+        new_rate = int(new_rate)
+        if goal["progress_rate"] == new_rate:
+            return True
+        ts = now_str()
+        conn.execute(
+            "UPDATE progress_goals SET progress_rate = ?, updated_at = ? WHERE id = ? AND user_id = ?",
+            (new_rate, ts, goal_id, user_id),
+        )
+        conn.execute(
+            "INSERT INTO progress_updates (goal_id, previous_rate, new_rate, note, created_at) VALUES (?, ?, ?, ?, ?)",
+            (goal_id, goal["progress_rate"], new_rate, note or None, ts),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def get_progress_updates(goal_id, user_id):
+    conn = get_connection()
+    try:
+        owner = conn.execute(
+            "SELECT 1 FROM progress_goals WHERE id = ? AND user_id = ?", (goal_id, user_id)
+        ).fetchone()
+        if owner is None:
+            return []
+        rows = conn.execute(
+            "SELECT * FROM progress_updates WHERE goal_id = ? ORDER BY created_at DESC, id DESC", (goal_id,)
+        ).fetchall()
+        return [dict(row) for row in rows]
+    finally:
+        conn.close()
+
+
+def delete_progress_goal(goal_id, user_id):
+    conn = get_connection()
+    try:
+        cur = conn.execute("DELETE FROM progress_goals WHERE id = ? AND user_id = ?", (goal_id, user_id))
+        conn.commit()
+        return cur.rowcount > 0
     finally:
         conn.close()
 
@@ -759,8 +1138,8 @@ def mark_notifications_read(user_id):
 # friendships
 # ---------------------------------------------------------------------------
 
-def send_friend_request(requester_id, addressee_email):
-    addressee = get_user_by_email(addressee_email)
+def send_friend_request(requester_id, friend_code):
+    addressee = get_user_by_friend_code(friend_code)
     if addressee is None:
         return "not_found", None
     if addressee["id"] == requester_id:

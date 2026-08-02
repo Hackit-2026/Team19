@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}マイページ - タイムラインカレンダー{% endblock %}
+{% block content %}
+<div class="form-window">
+  <h1>マイページ</h1>
+  <div class="section-title">名前</div>
+  <div class="list-row"><strong>{{ g.user.display_name }}</strong></div>
+  <div class="section-title">フレンドコード</div>
+  <div class="list-row">
+    <strong class="friend-code" aria-label="フレンドコード">{{ g.user.friend_code }}</strong>
+  </div>
+  <p class="empty-note">フレンドに追加してもらうとき、この8桁のコードを共有してください。</p>
+  <div class="form-actions">
+    <a class="btn" href="{{ url_for('account_settings') }}">アカウント設定</a>
+  </div>
+</div>
+{% endblock %}

@@ -14,16 +14,14 @@
   <nav class="topnav">
     <a href="{{ url_for('calendar_view') }}" class="{{ 'active' if request.endpoint in ('calendar_view',) else '' }}">カレンダー</a>
     <a href="{{ url_for('timer_view') }}" class="{{ 'active' if request.endpoint == 'timer_view' else '' }}">タイマー</a>
+    <a href="{{ url_for('progress_goals_view') }}" class="{{ 'active' if request.endpoint in ('progress_goals_view', 'progress_goal_new', 'progress_goal_detail', 'progress_goal_edit', 'friend_progress_goals_view') else '' }}">進捗</a>
     <a href="{{ url_for('friends_view') }}" class="{{ 'active' if request.endpoint == 'friends_view' else '' }}">フレンド</a>
-    <a href="{{ url_for('select_friend_calendar') }}" class="{{ 'active' if request.endpoint == 'select_friend_calendar' or request.endpoint == 'friend_calendar_view' else '' }}">フレンドのカレンダー</a>
-    <a href="{{ url_for('goals_view') }}" class="{{ 'active' if request.endpoint == 'goals_view' else '' }}">目標</a>
-    <a href="{{ url_for('reports_view') }}" class="{{ 'active' if request.endpoint == 'reports_view' else '' }}">集計</a>
-    <a href="{{ url_for('feed_view') }}" class="{{ 'active' if request.endpoint == 'feed_view' else '' }}">フィード{% if unread_feed %}<span class="nav-badge">{{ unread_feed }}</span>{% endif %}</a>
     <a href="{{ url_for('notifications_view') }}" class="{{ 'active' if request.endpoint == 'notifications_view' else '' }}">通知{% if unread_notifications %}<span class="nav-badge">{{ unread_notifications }}</span>{% endif %}</a>
   </nav>
   <div class="user-area">
-    <a href="{{ url_for('account_settings') }}" class="user-name-link">{{ g.user.display_name }}</a>
+    <a href="{{ url_for('mypage') }}" class="user-name-link">{{ g.user.display_name }}</a>
     <form method="post" action="{{ url_for('logout') }}" style="display:inline;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button type="submit" class="btn btn-sm">ログアウト</button>
     </form>
   </div>

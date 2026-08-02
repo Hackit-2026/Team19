@@ -1,9 +1,11 @@
 {% extends "base.html" %}
 {% block title %}{{ '予定を編集' if mode == 'edit' else '予定を追加' }} - タイムラインカレンダー{% endblock %}
 {% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='calendar.css') }}">
 <div class="form-window">
   <h1>{{ '予定を編集' if mode == 'edit' else '予定を追加' }}</h1>
   <form method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <label class="field-label">日付</label>
     <input class="field" type="date" name="date" value="{{ form.date }}" required>
 
@@ -16,32 +18,44 @@
     <div class="row">
       <div>
         <label class="field-label">開始時刻</label>
-        <input class="field small" type="time" name="start_time" value="{{ form.start_time }}" required>
+        <input class="field small" type="time" name="start_time" value="{{ form.start_time }}" step="900" required>
       </div>
       <div>
         <label class="field-label">終了時刻</label>
-        <input class="field small" type="time" name="end_time" value="{{ form.end_time }}" required>
+        <input class="field small" type="time" name="end_time" value="{{ form.end_time }}" step="900" required>
       </div>
     </div>
 
     <label class="field-label">カテゴリ(任意、集計に使用)</label>
-    <input class="field" type="text" name="category" list="category-presets" value="{{ form.category }}">
+    <div class="category-input-row">
+      <input class="field" id="category-input" type="text" name="category" list="category-presets" value="{{ form.category }}">
+      <span id="category-preview" class="category-preview category-default" aria-label="カテゴリ色のプレビュー"></span>
+    </div>
     <datalist id="category-presets">
       {% for c in category_presets %}<option value="{{ c }}">{% endfor %}
     </datalist>
 
+    <label class="field-label">予定の色</label>
+    <div class="event-color-options" role="radiogroup" aria-label="予定の色">
+      {% for color in event_color_options %}
+        <label class="event-color-option">
+          <input type="radio" name="custom_color" value="{{ color }}" {{ 'checked' if form.custom_color == color else '' }}>
+          <span class="event-color-swatch" style="background-color: {{ color }};" aria-label="{{ color }}"></span>
+        </label>
+      {% endfor %}
+    </div>
+    <div class="empty-note">色を選択しない既存予定はカテゴリの色で表示されます。</div>
+
+    <label class="field-label" for="progress-goal">関連する進捗目標(任意)</label>
+    <select id="progress-goal" class="field" name="progress_goal_id">
+      <option value="">指定なし</option>
+      {% for goal in progress_goals %}
+        <option value="{{ goal.id }}" {{ 'selected' if form.progress_goal_id|string == goal.id|string else '' }}>{{ goal.title }}</option>
+      {% endfor %}
+    </select>
+
     <label class="field-label">メモ(任意)</label>
     <textarea class="field" name="memo" rows="3">{{ form.memo }}</textarea>
-
-    <label class="field-label">公開範囲</label>
-    <div class="row" style="gap:16px;">
-      <label style="font-size:13px; display:flex; align-items:center; gap:4px;">
-        <input type="radio" name="visibility" value="public" {{ 'checked' if form.visibility != 'private' else '' }}> フレンドに公開
-      </label>
-      <label style="font-size:13px; display:flex; align-items:center; gap:4px;">
-        <input type="radio" name="visibility" value="private" {{ 'checked' if form.visibility == 'private' else '' }}> 非公開(自分のみ)
-      </label>
-    </div>
 
     <div class="form-actions">
       <button type="submit" class="btn btn-primary">{{ '更新する' if mode == 'edit' else '追加する' }}</button>
@@ -50,10 +64,51 @@
   </form>
 
   {% if mode == 'edit' %}
+  <section class="event-completion-panel">
+    <h2>実績</h2>
+    {% if event.is_completed %}
+      <p>完了済み・実績 {{ event.actual_minutes }}分</p>
+      <form method="post" action="{{ url_for('uncomplete_event', event_id=event_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="btn">完了を取り消す</button>
+      </form>
+    {% else %}
+      <form method="post" action="{{ url_for('complete_event', event_id=event_id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label class="field-label" for="actual-minutes">実際に作業した時間(分)</label>
+        <input id="actual-minutes" class="field small" type="number" name="actual_minutes" min="0" value="{{ event_duration_minutes }}" required>
+        <button type="submit" class="btn btn-primary">完了にする</button>
+      </form>
+    {% endif %}
+  </section>
   <form method="post" action="{{ url_for('delete_event', event_id=event_id) }}" class="delete-form"
         onsubmit="return confirm('この予定を削除しますか？');">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <button type="submit" class="btn btn-warn">この予定を削除する</button>
   </form>
   {% endif %}
 </div>
+<script>
+  (() => {
+    const input = document.getElementById('category-input');
+    const preview = document.getElementById('category-preview');
+    if (!input || !preview) return;
+    const categoryClass = (value) => {
+      const category = value.trim().toLowerCase();
+      if (!category) return 'default';
+      if (/筋トレ|運動|workout|training/.test(category)) return 'workout';
+      if (/勉強|学習|study/.test(category)) return 'study';
+      if (/作業|開発|仕事|work|development/.test(category)) return 'work';
+      if (/授業|講義|class|lecture/.test(category)) return 'class';
+      if (/アルバイト|バイト|parttime|part-time/.test(category)) return 'parttime';
+      if (/休憩|休み|break|rest/.test(category)) return 'break';
+      return 'other';
+    };
+    const updatePreview = () => {
+      preview.className = `category-preview category-${categoryClass(input.value)}`;
+    };
+    input.addEventListener('input', updatePreview);
+    updatePreview();
+  })();
+</script>
 {% endblock %}

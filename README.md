@@ -1,7 +1,7 @@
 # タイムラインカレンダー Web版(フル機能版・ローカルサーバー)
 
 要件定義書(01_要件定義書_詳細版.md)に記載した優先度1〜4の機能を、**ソーシャルログインを除いてすべて**実装したバージョンです。
-Flask + SQLiteで作られており、Pythonさえあれば手元のPCですぐ動かせます(ローカルサーバー用途、実運用へのそのままの公開は想定していません)。
+Flask + SQLiteで作られており、Docker ComposeまたはPythonで起動できます。
 
 ## 含まれる機能
 
@@ -22,7 +22,6 @@ Flask + SQLiteで作られており、Pythonさえあれば手元のPCですぐ�
 ### 優先度3(要望のあった価値機能)
 - **目標設定・達成率共有**:「目標」画面で週/月の目標時間を設定。達成率をフレンドに公開するかどうかも選べます
 - **タイマー停止時の進捗表示**: 停止直後に、今日の合計時間・週/月の合計時間と目標達成率を表示します
-- **フレンドの活動フィード**:「フィード」画面でフレンドが新しく記録した予定を新しい順に確認できます(未読バッジつき)
 
 ### 優先度4(拡張機能)
 - **フレンド申請の通知**: アプリ内通知(「通知」画面、未読バッジ)と、開発用メールボックスへの通知メール
@@ -35,31 +34,119 @@ Flask + SQLiteで作られており、Pythonさえあれば手元のPCですぐ�
 
 ## メール送信について(重要)
 
-ローカルサーバーのため、実際にはメールを送信していません。メール認証・パスワードリセット・フレンド申請通知のメールは、すべて**「開発用メールボックス」**(`/dev/mailbox`)に記録されます。ログイン画面や該当する案内画面から直接リンクできます。これはMailHog/Mailtrapなど、ローカル開発でよく使われるメール確認ツールと同じ考え方です。
+実際にはメールを送信せず、メール認証・パスワードリセット・フレンド申請通知をDB内の開発用メールボックスへ記録します。`DEV_MAILBOX_ENABLED=true`を明示したローカル環境だけで`/dev/mailbox`を公開し、デフォルトおよび公開環境では404を返します。
 
 本番運用する場合は、`db.send_mock_mail()` の呼び出し箇所を実際のSMTP送信(例: Flask-Mail、SendGrid等)に置き換えてください。
 
-## セキュリティ面の注意(本番運用時は要対応)
+## セキュリティ面の注意
 
-- `app.secret_key` はデモ用の固定値です。実運用では環境変数等で必ず変更してください
+- `SECRET_KEY`は必須です。`.env`はGitへコミットせず、環境ごとに十分長いランダム値を設定してください
+- POSTフォームはCSRFトークンで保護されています
+- 公開環境では`DEV_MAILBOX_ENABLED=false`、HTTPS利用時は`SESSION_COOKIE_SECURE=true`にしてください
 - ログイン試行回数の制限は未実装です
 - メール送信を実SMTPに置き換える際は、送信先アドレスの検証やレート制限も合わせて検討してください
 
 ## 必要なもの
 
-- Python 3.9以降
-- Flask(`pip install -r requirements.txt` で導入)
+- Docker Desktop + Docker Compose、またはPython 3.13
 
-## 起動方法
+## Dockerでの起動方法
+
+`.env.example`を`.env`へコピーし、`SECRET_KEY`をランダム値へ変更してから起動します。
 
 ```bash
-cd web_demo
-pip install -r requirements.txt --break-system-packages   # 環境によっては --break-system-packages は不要です
-python3 seed.py     # デモ用データを投入(初回、またはデータをリセットしたい時に実行)
-python3 app.py      # http://127.0.0.1:5000 で起動します
+1. Docker Desktopを起動
+Docker Desktopを起動して、PowerShellで確認します。
+docker --version
+docker compose version
+両方のバージョンが表示されれば準備完了です。
+2. 環境設定ファイルを作成
+Copy-Item .env.example .env
+秘密鍵として使うランダム文字列を生成します。
+[guid]::NewGuid().ToString("N") + [guid]::NewGuid().ToString("N")
+表示された文字列をコピーして、.envを開きます。
+notepad .env
+ローカルデモ用なら次のように設定します。
+SECRET_KEY=ここに生成したランダム文字列
+DEV_MAILBOX_ENABLED=true
+SESSION_COOKIE_SECURE=false
+PORT=5000
+TZ=Asia/Tokyo
+.envはGitへコミットしません。
+3. Dockerを起動
+docker compose up --build -d
+docker compose ps
+次のようにhealthyと表示されれば成功です。
+Up ... (healthy)
+4. 初回デモデータを作成
+初回だけ実行します。
+docker compose exec -T web python seed.py
+このコマンドは既存DBをリセットするので、データを残したい場合は再実行しないでください。
+5. ブラウザで開く
+http://127.0.0.1:5000
+デモアカウント：
+demo1@example.com / demo1234
+demo2@example.com / demo1234
+demo3@example.com / demo1234
+Dockerのログを確認
+docker compose logs -f web
+ログ表示だけを終了する場合はCtrl + Cです。コンテナは動き続けます。
+Dockerを停止
+docker compose down
+通常のdownではSQLiteデータは残ります。
+Dockerを再起動
+docker compose up -d
+コードや依存関係が変わった場合：
+docker compose up --build -d
+DBも完全に削除する場合
+docker compose down -v
+これはSQLiteのデータも削除するため、必要な場合だけ実行します。
+
+ブラウザで`http://127.0.0.1:5000`を開いてください。SQLiteはDocker Volumeの`/data/demo.db`へ保存されるため、コンテナを作り直しても保持されます。
+
+ログ確認と停止は以下です。
+
+```bash
+docker compose logs -f web
+docker compose down
 ```
 
-ブラウザで `http://127.0.0.1:5000` を開いてください。
+Volumeを含めてデータを消す場合に限り、`docker compose down -v`を使用してください。
+
+## Pythonでの起動方法
+
+```bash
+Windows PowerShellで、初めて受け取った人がPython版を起動する手順です。Python 3.13がインストールされている前提です。
+初回セットアップ
+PowerShellを開き、プロジェクトへ移動します。
+cd C:\配置した場所\Team19
+Pythonを確認します。
+python --version
+仮想環境を作成します。
+python -m venv .venv
+仮想環境を有効化します。
+.\.venv\Scripts\Activate.ps1
+スクリプトの実行が無効というエラーが出た場合だけ、次を実行します。
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+先頭に(.venv)と表示されたら成功です。
+依存関係をインストールします。
+python -m pip install --upgrade pip
+python -m pip install -r requirements-dev.txt
+起動に必要な環境変数を設定します。
+$env:SECRET_KEY = python -c "import secrets; print(secrets.token_urlsafe(32))"
+$env:DEV_MAILBOX_ENABLED = "true"
+$env:PORT = "5000"
+初回のデモデータを作成します。
+python seed.py
+注意：seed.pyを再実行すると、既存のローカルDBがリセットされます。
+アプリを起動します。
+python app.py
+ブラウザで開きます。
+http://127.0.0.1:5000
+```
+
+Windows PowerShellでは仮想環境を`.venv\Scripts\Activate.ps1`で有効化し、環境変数を`$env:SECRET_KEY="..."`の形式で設定してください。
 
 ## デモアカウント
 
@@ -80,25 +167,27 @@ python3 app.py      # http://127.0.0.1:5000 で起動します
 5. 「目標」画面で目標時間を変更してみる、フレンドへの公開設定を切り替えてみる
 6. 「集計」画面でカテゴリ別の内訳を見る
 7. 「フレンド」画面で けんじ からの申請を承認する → 「通知」画面に承認完了の通知が(相手側に)届く
-8. 「フレンドのカレンダー」から フレンド太郎 のカレンダー・達成率を確認する(非公開に設定した予定は表示されないことも確認できます)
-9. 「フィード」画面でフレンドの新着記録を確認する
-10. 一度ログアウトし、新規登録 → 「開発用メールボックス」で確認メールを開いてリンクをクリック → メール認証を完了する流れも試せます
+8. 「フレンド」画面から フレンド太郎 の公開中の進捗を確認する
+9. 一度ログアウトし、新規登録 → 「開発用メールボックス」で確認メールを開いてリンクをクリック → メール認証を完了する流れも試せます
 
 もう一度まっさらな状態から試したい場合は `python3 seed.py` を再実行してください(既存のデータはリセットされます)。
 
 ## ファイル構成
 
 ```
-web_demo/
+Team19/
+  Dockerfile         - アプリのコンテナイメージ
+  compose.yaml       - ポート・環境変数・SQLite Volume
+  docker-entrypoint.sh - DB初期化後にGunicornを起動
   app.py              - Flaskアプリ本体(ルーティング)
   db.py               - データ層(SQLite操作、疑似メール送信含む)
   calendar_utils.py   - 週表示/月表示グリッドの組み立てロジック
   seed.py             - デモ用データ投入スクリプト
   templates/          - 画面テンプレート(Jinja2)
   static/style.css    - スタイルシート(レスポンシブ対応含む)
-  demo.db             - SQLiteデータベース(初回起動時に自動生成)
+  tests/              - pytestによる自動テスト
 ```
 
 ## 動作確認について
 
-新規登録→メール認証必須ゲート→開発用メールボックスでの認証完了、パスワードリセット一連の流れ、カレンダー週/月表示切り替え、予定追加(カテゴリ・公開範囲つき)・重複警告、タイマー開始/停止と進捗表示、目標設定と達成率計算、フレンド申請〜通知〜承認、活動フィード、非公開予定がフレンドのカレンダーに表示されないことの確認、アカウント設定でのパスワード変更、モバイル幅でのレイアウト崩れがないことを含め、ヘッドレスブラウザによる自動操作で一通り動作確認済みです。
+新規登録→メール認証必須ゲート→開発用メールボックスでの認証完了、パスワードリセット一連の流れ、カレンダー週/月表示切り替え、予定追加(カテゴリ・公開範囲つき)・重複警告、タイマー開始/停止と進捗表示、目標設定と達成率計算、フレンド申請〜通知〜承認、アカウント設定でのパスワード変更、モバイル幅でのレイアウト崩れがないことを含め、ヘッドレスブラウザによる自動操作で一通り動作確認済みです。

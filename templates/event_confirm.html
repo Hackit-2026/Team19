@@ -17,13 +17,15 @@
 
   <div class="form-actions" style="margin-top:18px;">
     <form method="post" action="{{ url_for('edit_event', event_id=event_id) if mode == 'edit' else url_for('new_event') }}" style="display:inline;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="date" value="{{ date }}">
       <input type="hidden" name="title" value="{{ title }}">
       <input type="hidden" name="start_time" value="{{ start_time }}">
       <input type="hidden" name="end_time" value="{{ end_time }}">
       <input type="hidden" name="memo" value="{{ memo }}">
       <input type="hidden" name="category" value="{{ category }}">
-      <input type="hidden" name="visibility" value="{{ visibility }}">
+      <input type="hidden" name="custom_color" value="{{ custom_color }}">
+      <input type="hidden" name="progress_goal_id" value="{{ progress_goal_id }}">
       <input type="hidden" name="confirm" value="1">
       <button type="submit" class="btn btn-primary">このまま追加する</button>
     </form>

@@ -1,0 +1,126 @@
+/* 週表示: 30分の罫線はそのまま、予定だけ15分単位で絶対配置する。 */
+.cal-actions { margin: 0 0 10px; display: flex; gap: 8px; }
+.week-calendar-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+.week-calendar {
+  display: grid;
+  grid-template-columns: 44px repeat(7, minmax(92px, 1fr));
+  min-width: 690px;
+  border: 1px solid #d9dfe7;
+}
+.week-head {
+  min-height: 42px;
+  padding: 7px 3px;
+  text-align: center;
+  border-left: 1px solid #aab2bd;
+  font-size: .82rem;
+  font-weight: 600;
+  color: #111111;
+  background: #f8fafc;
+}
+.time-head { border-left: 0; }
+.time-rail, .week-day { height: 2160px; position: relative; }
+.time-rail { background: #f8fafc; }
+.time-label {
+  height: 45px;
+  box-sizing: border-box;
+  padding: 2px 3px 0;
+  border-top: 1px solid #aab2bd;
+  font-size: 14px;
+  font-weight: 600;
+  color: #111111;
+  text-align: right;
+}
+.week-day { border-left: 1px solid #aab2bd; background: #fff; }
+.week-day.today, .week-head.today { background-color: #f3f8ff; }
+.slot-lines { position: absolute; inset: 0; z-index: 0; pointer-events: none; }
+.week-slot { height: 45px; box-sizing: border-box; border-top: 1px solid #aab2bd; }
+.week-slot.current-slot { background: rgba(255, 214, 102, .22); }
+.cell-add-link { position: absolute; z-index: 1; left: 0; right: 0; height: 45px; color: transparent; }
+.cell-add-link:focus, .cell-add-link:hover {
+  color: #111111;
+  background: rgba(80, 140, 220, .08);
+  outline: 2px solid #7aa7dd;
+  outline-offset: -2px;
+}
+.month-grid td { position: relative; }
+.month-add-link { position: absolute; z-index: 1; inset: 0; }
+.month-grid .date-num,
+.month-grid .ev,
+.month-grid .ev-more { position: relative; z-index: 2; }
+.month-grid .ev { text-decoration: none; }
+.month-grid .ev:hover { text-decoration: underline; }
+.cal-toolbar, .cal-toolbar .btn, .cal-toolbar .field, .total-label, .range-label, .date-num, .month-grid th, .month-grid td.outside .date-num, .ev-more { color: #111111 !important; font-weight: 600; }
+.ev-tag {
+  position: absolute;
+  z-index: 2;
+  left: 1px;
+  right: 1px;
+  box-sizing: border-box;
+  display: block;
+  overflow: hidden;
+  margin: 0;
+  padding: 2px 4px;
+  border-radius: 0;
+  background: #3979bd;
+  color: #111111;
+  text-decoration: none;
+  font-size: .72rem;
+  line-height: 1.15;
+  box-shadow: 0 1px 1px rgba(0, 0, 0, .10);
+}
+.ev-tag-readonly { --event-color: #5e738b; --event-light: rgba(94, 115, 139, .20); --event-actual: rgba(94, 115, 139, .50); }
+.ev-tag:focus { outline: 3px solid #f3a624; outline-offset: 1px; }
+.calendar-event { --event-color: #3f7fc1; --event-light: rgba(63, 127, 193, .20); --event-actual: rgba(63, 127, 193, .50); position: relative; overflow: hidden; color: #111111 !important; background-color: var(--event-light) !important; border: 1px solid rgba(0, 0, 0, .38); border-radius: 0; font-weight: 600; }
+.calendar-event.category-workout { --event-color: #e76f51; --event-light: rgba(231, 111, 81, .20); --event-actual: rgba(231, 111, 81, .50); }
+.calendar-event.category-study { --event-color: #3b82c4; --event-light: rgba(59, 130, 196, .20); --event-actual: rgba(59, 130, 196, .50); }
+.calendar-event.category-work { --event-color: #7c5ac7; --event-light: rgba(124, 90, 199, .20); --event-actual: rgba(124, 90, 199, .50); }
+.calendar-event.category-class { --event-color: #2aa7b8; --event-light: rgba(42, 167, 184, .20); --event-actual: rgba(42, 167, 184, .50); }
+.calendar-event.category-parttime { --event-color: #3c9b64; --event-light: rgba(60, 155, 100, .20); --event-actual: rgba(60, 155, 100, .50); }
+.calendar-event.category-break { --event-color: #7b8794; --event-light: rgba(123, 135, 148, .20); --event-actual: rgba(123, 135, 148, .50); }
+.calendar-event.category-other,
+.calendar-event.category-default { --event-color: #3f7fc1; --event-light: rgba(63, 127, 193, .20); --event-actual: rgba(63, 127, 193, .50); }
+.event-actual-fill { position: absolute; z-index: 0; top: 0; left: 0; width: 100%; height: var(--actual-ratio, 0%); background: var(--event-actual); pointer-events: none; }
+.calendar-event .ev-title, .calendar-event .ev-time, .calendar-event .ev-progress-meta, .calendar-event .event-content { color: #111111 !important; font-weight: 600; text-shadow: none; }
+.event-content { position: relative; z-index: 1; display: block; }
+
+.category-input-row { display: flex; align-items: center; gap: 9px; }
+.category-input-row .field { flex: 1; }
+.category-preview { width: 18px; height: 18px; flex: 0 0 18px; border-radius: 50%; background: #3f7fc1; border: 2px solid #2d69a8; }
+.category-preview.category-workout { background-color: #e76f51; border-color: #d65a3a; }
+.category-preview.category-study { background-color: #3b82c4; border-color: #286aa8; }
+.category-preview.category-work { background-color: #7c5ac7; border-color: #6746b0; }
+.category-preview.category-class { background-color: #2aa7b8; border-color: #188b9b; }
+.category-preview.category-parttime { background-color: #3c9b64; border-color: #2c8050; }
+.category-preview.category-break { background-color: #7b8794; border-color: #65717d; }
+
+.event-color-options { display: flex; flex-wrap: wrap; gap: 10px; margin: 4px 0; }
+.event-color-option { position: relative; display: block; width: 44px; height: 44px; cursor: pointer; }
+.event-color-option input { position: absolute; opacity: 0; }
+.event-color-swatch { display: block; width: 100%; height: 100%; box-sizing: border-box; border: 3px solid transparent; border-radius: 50%; box-shadow: 0 0 0 1px rgba(15, 23, 42, .28); }
+.event-color-option input:checked + .event-color-swatch { border-color: #111827; box-shadow: 0 0 0 2px #fff, 0 0 0 4px #111827; }
+.event-color-option input:focus-visible + .event-color-swatch { outline: 3px solid #93c5fd; outline-offset: 3px; }
+.event-completion-panel { margin: 18px 0; padding: 14px; border: 1px solid #dbe2ea; background: #f8fafc; }
+.event-completion-panel h2 { margin: 0 0 8px; font-size: 17px; }
+.event-completion-panel p { margin: 0 0 10px; }
+.event-completion-panel form { display: flex; align-items: end; flex-wrap: wrap; gap: 8px; }
+.event-completion-panel .field-label { width: 100%; }
+
+.calendar-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 0 0 10px; font-size: .75rem; }
+.legend-item { color: #111111; font-weight: 600; }
+.ev-title, .ev-time {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ev-time { margin-top: 2px; opacity: .92; font-size: .65rem; }
+.ev-progress-meta { display: block; margin-top: 2px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: .59rem; line-height: 1.1; }
+.ev-short { padding-top: 3px; line-height: 1; }
+.month-grid .ev { overflow: hidden; }
+.month-grid .ev .event-content { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.month-grid .ev small { font-size: .62rem; }
+@media (max-width: 700px) {
+  .week-calendar { min-width: 694px; }
+  .cal-toolbar { gap: 5px; }
+  .week-day { min-width: 92px; }
+}

@@ -56,12 +56,12 @@ def main():
     db.add_event(demo2, "勉強", dt_on(monday, 9, 0, 5), dt_on(monday, 10, 0, 5))
 
     # --- フレンド関係 ---
-    db.send_friend_request(demo1, "demo2@example.com")
+    db.send_friend_request(demo1, db.get_user_by_id(demo2)["friend_code"])
     reqs = db.get_received_requests(demo2)
     db.respond_to_request(reqs[0]["friendship_id"], demo2, accept=True)
 
     # けんじ(demo3)からポンスケへ申請中(承認待ちの状態を体験できるようにする)
-    db.send_friend_request(demo3, "demo1@example.com")
+    db.send_friend_request(demo3, db.get_user_by_id(demo1)["friend_code"])
     db.create_notification(demo1, "friend_request", "けんじ さんからフレンド申請が届いています", "/friends")
     db.send_mock_mail(
         "demo1@example.com",

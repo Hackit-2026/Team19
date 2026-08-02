@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}活動履歴 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='progress.css') }}">
+<div class="named-goal-detail"><a class="named-back" href="{{ url_for('progress_goals_view') }}">← 進捗へ戻る</a><section class="named-history"><h1>活動履歴</h1>{% if items %}<ul>{% for item in items %}<li><strong>{{ item.message }}</strong><span>{{ item.created_at }}</span></li>{% endfor %}</ul>{% else %}<p>実績の活動履歴はまだありません。</p>{% endif %}</section></div>
+{% endblock %}

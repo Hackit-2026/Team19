@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}名前付き目標 - タイムラインカレンダー{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="{{ url_for('static', filename='progress.css') }}">
+<div class="named-goals-page">
+  <header class="named-goals-header"><div><h1>自動進捗</h1><p>カレンダーの予定時間と、完了時に登録した実績時間から自動計算します。</p></div><a class="btn" href="{{ url_for('activity_history_view') }}">活動履歴</a></header>
+  <div class="progress-period-tabs"><a class="btn {{ 'active' if period == 'week' else '' }}" href="{{ url_for('progress_goals_view', period='week') }}">今週</a><a class="btn {{ 'active' if period == 'month' else '' }}" href="{{ url_for('progress_goals_view', period='month') }}">今月</a></div>
+  {% if auto_progress.cards %}
+  <div class="named-goal-grid auto-progress-grid">
+    {% for card in auto_progress.cards %}
+    <a class="named-goal-card {{ 'is-complete' if card.rate >= 100 else '' }}" href="{{ url_for('auto_progress_detail', period=period, category_key=card.key) }}">
+      <div class="named-goal-card-head"><h2>{{ card.label }}</h2><strong>{{ card.rate }}%</strong></div>
+      <div class="named-progress-bar"><span style="width: {{ card.bar_rate }}%"></span></div>
+      <div class="auto-progress-meta"><span>予定 {{ card.planned_minutes // 60 }}時間{{ card.planned_minutes % 60 }}分</span><span>実績 {{ card.actual_minutes // 60 }}時間{{ card.actual_minutes % 60 }}分</span><span>完了 {{ card.completed_count }} / {{ card.event_count }}件</span></div>
+      {% if card.over_minutes %}<small>予定より{{ card.over_minutes // 60 }}時間{{ card.over_minutes % 60 }}分多く実施</small>{% else %}<small>残り {{ card.remaining_minutes // 60 }}時間{{ card.remaining_minutes % 60 }}分</small>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}<div class="named-goals-empty">この期間に予定はありません。</div>{% endif %}
+
+  <header class="named-goals-header named-goals-subheader"><div><h2>名前付き目標</h2><p>予定を関連付けると、その予定と実績から自動進捗を表示します。</p></div><a class="btn btn-primary" href="{{ url_for('progress_goal_new') }}">＋ 目標を追加</a></header>
+  {% if goals %}
+  <div class="named-goal-grid">
+    {% for goal in goals %}
+    <a class="named-goal-card {{ 'is-complete' if goal.progress_rate >= 100 else '' }}" href="{{ url_for('progress_goal_detail', goal_id=goal.id) }}">
+      <div class="named-goal-card-head"><h2>{{ goal.title }}</h2><strong>{{ goal.progress_rate }}%</strong></div>
+      <div class="named-progress-bar" aria-label="進捗 {{ goal.progress_rate }}%"><span style="width: {{ goal.progress_rate }}%"></span></div>
+      <div class="named-goal-meta"><span>予定 {{ goal.auto_progress.planned_minutes // 60 }}時間{{ goal.auto_progress.planned_minutes % 60 }}分 ・実績 {{ goal.auto_progress.actual_minutes // 60 }}時間{{ goal.auto_progress.actual_minutes % 60 }}分</span><span>{{ '公開' if goal.is_public else '非公開' }}{% if goal.deadline %} ・期限 {{ goal.deadline }}{% endif %}</span></div>
+      <small>最終更新 {{ goal.updated_at }}</small>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="named-goals-empty"><p>名前付き目標はまだありません。</p><a class="btn btn-primary" href="{{ url_for('progress_goal_new') }}">最初の目標を追加</a></div>
+  {% endif %}
+</div>
+{% endblock %}
