@@ -111,7 +111,7 @@ body {
 .progress-stop-summary strong { color: #101828; font-size: 18px; }
 .progress-stop-summary small { color: #98a2b3; font-size: 11px; }
 
-@media (max-width: 760px) {
+@media (max-width: 1096px) {
   .progress-page { padding-bottom: 32px; }
   .progress-grid { grid-template-columns: 1fr; }
   .progress-card { padding: 20px; }
@@ -367,7 +367,7 @@ table.month-grid td.today .date-num { font-weight: bold; color: #333; }
 /* ---------------------------------------------------------------------- */
 /* モバイル対応(レスポンシブ)                                            */
 /* ---------------------------------------------------------------------- */
-@media (max-width: 760px) {
+@media (max-width: 1096px) {
   .topbar { flex-wrap: wrap; padding: 8px 12px; gap: 10px; }
   .brand {
     font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
