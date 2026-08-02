@@ -748,6 +748,19 @@ def progress_goals_view():
     return render_template("progress_list.html", goals=db.get_progress_goals(g.user["id"]), auto_progress=auto_progress, period=period)
 
 
+@app.route("/progress/auto/share", methods=["POST"])
+@login_required
+def auto_progress_share_update():
+    period = request.form.get("period")
+    category_key = request.form.get("category_key", "")
+    if period not in ("week", "month") or not category_key:
+        flash("不正なリクエストです", "error")
+    else:
+        db.set_auto_category_progress_public(g.user["id"], period, category_key, request.form.get("is_public") == "1")
+        flash("自動進捗の共有設定を更新しました", "info")
+    return redirect(url_for("auto_progress_detail", period=period, category_key=category_key) if period in ("week", "month") and category_key else url_for("progress_goals_view"))
+
+
 @app.route("/progress/auto/<period>/<category_key>")
 @login_required
 def auto_progress_detail(period, category_key):
@@ -757,7 +770,7 @@ def auto_progress_detail(period, category_key):
     if card is None:
         flash("この期間のカテゴリ予定はありません", "error")
         return redirect(url_for("progress_goals_view", period=period))
-    return render_template("progress_auto_detail.html", card=card, period=period)
+    return render_template("progress_auto_detail.html", card=card, period=period, auto_progress_public=db.is_auto_category_progress_public(g.user["id"], period, category_key))
 
 
 @app.route("/history")
@@ -853,7 +866,7 @@ def friend_progress_goals_view(user_id):
     if friend is None or not db.are_friends(g.user["id"], user_id):
         flash("フレンドの公開目標のみ閲覧できます", "error")
         return redirect(url_for("friends_view"))
-    return render_template("friend_progress.html", friend=friend, goals=db.get_public_progress_goals(user_id))
+    return render_template("friend_progress.html", friend=friend, goals=db.get_public_progress_goals(user_id), auto_progress_cards=db.get_public_auto_category_progress_cards(user_id))
 
 
 # ---------------------------------------------------------------------------

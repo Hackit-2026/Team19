@@ -36,9 +36,13 @@
 .named-history li p { margin: 7px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .named-goal-form { display: grid; gap: 14px; }
 .named-goal-form label { display: grid; gap: 6px; color: #344054; font-size: 14px; font-weight: 700; }
-.named-goal-form .named-public-toggle { display: flex; align-items: center; gap: 8px; }
+.named-goal-form .named-public-toggle { display: inline-flex; align-items: center; width: fit-content; gap: 8px; white-space: nowrap; }
+.named-goal-form .named-public-toggle input[type="checkbox"] { width: 18px; min-width: 18px; height: 18px; min-height: 18px; margin: 0; padding: 0; }
 .named-form-actions { display: flex; gap: 8px; }
 .progress-period-tabs { display: flex; gap: 8px; margin: 0 0 16px; }
+.auto-progress-share { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin: 0 0 16px; }
+.auto-progress-share .named-public-toggle { display: inline-flex; align-items: center; gap: 8px; white-space: nowrap; }
+.auto-progress-share input[type="checkbox"] { width: 18px; height: 18px; margin: 0; }
 .auto-progress-meta { display: grid; gap: 4px; color: #475467; font-size: 13px; }
 .named-goals-subheader { margin-top: 32px; }
 .named-goals-subheader h2 { margin: 0; font-size: 20px; }

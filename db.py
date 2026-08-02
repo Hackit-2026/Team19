@@ -168,6 +168,23 @@ def init_db(reset=False):
 
         CREATE INDEX IF NOT EXISTS idx_progress_updates_goal ON progress_updates(goal_id, created_at);
 
+        CREATE TABLE IF NOT EXISTS auto_progress_shares (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            period TEXT NOT NULL CHECK (period IN ('week', 'month')),
+            is_public BOOLEAN NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, period)
+        );
+
+        CREATE TABLE IF NOT EXISTS auto_category_progress_shares (
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            period TEXT NOT NULL CHECK (period IN ('week', 'month')),
+            category_key TEXT NOT NULL,
+            is_public BOOLEAN NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, period, category_key)
+        );
+
         CREATE TABLE IF NOT EXISTS notifications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
@@ -673,6 +690,87 @@ def get_auto_category_detail(user_id, period, category_key, ref_date=None):
         if card["key"] == category_key:
             return card
     return None
+
+
+def set_auto_progress_public(user_id, period, is_public):
+    if period not in ("week", "month"):
+        return False
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO auto_progress_shares (user_id, period, is_public, updated_at) VALUES (?, ?, ?, ?) "
+            "ON CONFLICT(user_id, period) DO UPDATE SET is_public = excluded.is_public, updated_at = excluded.updated_at",
+            (user_id, period, 1 if is_public else 0, now_str()),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def is_auto_progress_public(user_id, period):
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT is_public FROM auto_progress_shares WHERE user_id = ? AND period = ?", (user_id, period)
+        ).fetchone()
+        return bool(row and row["is_public"])
+    finally:
+        conn.close()
+
+
+def get_public_auto_category_progress(user_id):
+    result = []
+    for period in ("week", "month"):
+        if is_auto_progress_public(user_id, period):
+            result.append(get_auto_category_progress(user_id, period))
+    return result
+
+
+def set_auto_category_progress_public(user_id, period, category_key, is_public):
+    if period not in ("week", "month"):
+        return False
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT INTO auto_category_progress_shares (user_id, period, category_key, is_public, updated_at) VALUES (?, ?, ?, ?, ?) "
+            "ON CONFLICT(user_id, period, category_key) DO UPDATE SET is_public = excluded.is_public, updated_at = excluded.updated_at",
+            (user_id, period, category_key, 1 if is_public else 0, now_str()),
+        )
+        conn.commit()
+        return True
+    finally:
+        conn.close()
+
+
+def is_auto_category_progress_public(user_id, period, category_key):
+    conn = get_connection()
+    try:
+        row = conn.execute(
+            "SELECT is_public FROM auto_category_progress_shares WHERE user_id = ? AND period = ? AND category_key = ?",
+            (user_id, period, category_key),
+        ).fetchone()
+        return bool(row and row["is_public"])
+    finally:
+        conn.close()
+
+
+def get_public_auto_category_progress_cards(user_id):
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT period, category_key FROM auto_category_progress_shares WHERE user_id = ? AND is_public = 1",
+            (user_id,),
+        ).fetchall()
+    finally:
+        conn.close()
+    cards = []
+    for row in rows:
+        card = get_auto_category_detail(user_id, row["period"], row["category_key"])
+        if card is not None:
+            card["period"] = row["period"]
+            cards.append(card)
+    return cards
 
 
 def delete_event(event_id):
