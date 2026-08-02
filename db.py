@@ -24,7 +24,7 @@ DEFAULT_DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "demo
 DB_PATH = os.path.abspath(os.environ.get("DATABASE_PATH", DEFAULT_DB_PATH))
 DT_FMT = "%Y-%m-%d %H:%M:%S"
 
-TASK_PRESETS = ["勉強", "筋トレ", "作業", "読書"]
+TASK_PRESETS = ["作業", "勉強", "休憩", "運動", "読書", "その他"]
 CATEGORY_PRESETS = ["学習", "仕事", "運動", "趣味", "その他"]
 
 EMAIL_VERIFICATION_TTL_HOURS = 24
