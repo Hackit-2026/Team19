@@ -355,6 +355,7 @@ def render_calendar(target_user, viewing_own, back_url=None):
             friend_progress=friend_progress,
             weekday_names=cu.WEEKDAY_NAMES,
             slot_label=cu.slot_label,
+            category_class=cu.category_class,
             today=date.today(),
             switch_month_url=url_for(request.endpoint, view="month", date=ref_date.isoformat(), **({"user_id": target_user["id"]} if not viewing_own else {})),
             switch_week_url=url_for(request.endpoint, view="week", date=ref_date.isoformat(), **({"user_id": target_user["id"]} if not viewing_own else {})),
@@ -363,7 +364,8 @@ def render_calendar(target_user, viewing_own, back_url=None):
     # week view (default)
     week_start = cu.week_start_of(ref_date)
     week_days = [week_start + timedelta(days=i) for i in range(7)]
-    grid = cu.build_week_grid(target_user["id"], week_start, only_public=only_public)
+    # 30分の罫線は維持し、予定カードだけを15分単位で絶対配置する。
+    week_events = cu.build_week_event_layout(target_user["id"], week_start, only_public=only_public)
     week_total = db.total_seconds_for_range(
         target_user["id"],
         datetime.combine(week_start, time.min),
@@ -376,7 +378,7 @@ def render_calendar(target_user, viewing_own, back_url=None):
     return render_template(
         "calendar.html",
         view="week",
-        grid=grid,
+        week_events=week_events,
         week_days=week_days,
         ref_date=ref_date,
         prev_url=url_for(request.endpoint, view="week", date=(week_start - timedelta(days=7)).isoformat(), **kwargs),
@@ -394,6 +396,7 @@ def render_calendar(target_user, viewing_own, back_url=None):
         weekday_names=cu.WEEKDAY_NAMES,
         slots_per_day=cu.SLOTS_PER_DAY,
         slot_label=cu.slot_label,
+        category_class=cu.category_class,
     )
 
 

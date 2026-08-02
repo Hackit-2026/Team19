@@ -8,6 +8,24 @@ import pytest
 
 import app as app_module
 import db
+import calendar_utils as cu
+
+
+@pytest.mark.parametrize(
+    ("category", "expected"),
+    [
+        (None, "default"),
+        ("  筋トレ ", "workout"),
+        ("学習", "study"),
+        ("開発", "work"),
+        ("授業", "class"),
+        ("アルバイト", "parttime"),
+        ("休憩", "break"),
+        ("趣味", "other"),
+    ],
+)
+def test_category_class(category, expected):
+    assert cu.category_class(category) == expected
 
 
 def csrf_token(response):
